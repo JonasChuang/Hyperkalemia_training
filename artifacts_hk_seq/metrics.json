@@ -1,0 +1,31 @@
+{
+  "val": {
+    "threshold": 0.2894536554813385,
+    "AUC": 0.6386151727060817,
+    "AUPRC": 0.23011642844685468,
+    "F1": 0.32722832722832723,
+    "Brier": 0.14061449707676726
+  },
+  "test": {
+    "threshold": 0.24767030775547028,
+    "AUC": 0.5773296970337305,
+    "AUPRC": 0.20109132654665599,
+    "F1": 0.28268991282689915,
+    "Brier": 0.14244353396576193
+  },
+  "features": [
+    "drug_heparin",
+    "drug_k_sparing",
+    "drug_loop",
+    "drug_nsaid",
+    "drug_raasi",
+    "drug_thiazide",
+    "age"
+  ],
+  "seq_hours": 48,
+  "label_window": [
+    24,
+    48
+  ],
+  "k_cutoff": 5.5
+}

@@ -1,0 +1,27 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+pandas = "*"
+sqlalchemy = "*"
+matplotlib = "*"
+seaborn = "*"
+cryptography = "*"
+pymysql = "*"
+openpyxl = "*"
+scikit-learn = "*"
+joblib = "*"
+keras = "*"
+tensorflow = "*"
+shap = "*"
+yolo = "*"
+xgboost = "*"
+boruta = "*"
+statsmodels = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.11"
