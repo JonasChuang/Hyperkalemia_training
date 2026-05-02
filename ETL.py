@@ -399,8 +399,8 @@ def CKD_LAB():#轉檔
                 50983,52623,52455,
                 51222,50820,50804,50818
             )
-            AND a.charttime >= b.admittime + INTERVAL 24 HOUR
-            AND a.charttime <  b.dischtime + INTERVAL 48 HOUR
+            -- AND a.charttime >= b.admittime + INTERVAL 24 HOUR
+            -- AND a.charttime <  b.dischtime + INTERVAL 48 HOUR
             AND a.valuenum REGEXP '^[0-9]+(\\.[0-9]+)?$'
             AND a.valuenum != 0;
             
@@ -710,8 +710,8 @@ def adm_k():#轉檔
                     and (`lab`.`hadm_id` = `a`.`hadm_id`)
                    --  AND lab.charttime >= a.admittime
                     
-                     AND lab.charttime >= a.admittime + INTERVAL 6 HOUR
-                    AND lab.charttime <  a.admittime + INTERVAL 72 HOUR
+                     AND lab.charttime >= a.admittime + INTERVAL 24 HOUR
+                     AND lab.charttime <  a.admittime + INTERVAL 72 HOUR
 
 
                         and (`lab`.`itemid` in ('50971','52610'))
@@ -748,14 +748,15 @@ def adm_k():#轉檔
                 `admissions` `a`
             join `patients` on
                 ((`patients`.`subject_id` = `a`.`subject_id` AND`patients`.`anchor_year_group` in ('2020 - 2022', '2017 - 2019') ))
-               --  ((`patients`.`subject_id` = `a`.`subject_id` AND`patients`.`anchor_year_group` in ('2020 - 2022') ))
+              --   ((`patients`.`subject_id` = `a`.`subject_id` AND`patients`.`anchor_year_group` in ('2020 - 2022') ))
             where 
 
             exists(
                          select  1 from `diagnoses_icd` where `diagnoses_icd`.`subject_id` = `a`.`subject_id`
                               
                                     and `diagnoses_icd`.`hadm_id` = `a`.`hadm_id`
-                                    and `diagnoses_icd`.`seq_num` in (1, 2, 3, 4, 5,6,7,8,9,10)
+                                    and `diagnoses_icd`.`seq_num` 
+                                    -- in (1, 2, 3, 4, 5,6,7,8,9,10)
                                     and    `diagnoses_icd`.`icd_version` = 10
                                          
                                     and (SUBSTRING(replace(`diagnoses_icd`.`icd_code`, '.', ''),1,4)
@@ -763,6 +764,7 @@ def adm_k():#轉檔
                                          )              
                                
                  )
+             and patients.anchor_age >=18
 
 
                
@@ -780,7 +782,7 @@ def adm_k():#轉檔
                     '51222','50820','50804','50818'
                 )
                 GROUP BY l.hadm_id
-                HAVING COUNT(DISTINCT l.itemid) >= 7
+                HAVING COUNT(DISTINCT l.itemid) >= 11
             )
             
             /*and  a.hadm_id IN (
@@ -841,90 +843,90 @@ def adm_k():#轉檔
 
             connection.execute(text(SQL))
 
-            for I in results2:
-                SQL=f"""
+            # for I in results2:
+            #     SQL=f"""
 
-                WITH
-                egfr  AS (
-                SELECT
-                    a.subject_id, a.hadm_id ,
-                    ( select b.valuenum 
+            #     WITH
+            #     egfr  AS (
+            #     SELECT
+            #         a.subject_id, a.hadm_id ,
+            #         ( select b.valuenum 
                 
-                from labevents b    
-                where b.subject_id= a.subject_id and `b`.`hadm_id` = `a`.`hadm_id` AND itemid = 50912 AND b.valuenum IS NOT null
-                ORDER by b.charttime DESC LIMIT 1
-                ) as lab
+            #     from labevents b    
+            #     where b.subject_id= a.subject_id and `b`.`hadm_id` = `a`.`hadm_id` AND itemid = 50912 AND b.valuenum IS NOT null
+            #     ORDER by b.charttime DESC LIMIT 1
+            #     ) as lab
                     
-                    ,a.gender, a.age_years,
-                    /* κ, α 依性別 */
-                    CASE WHEN a.gender='F' THEN 0.7 ELSE 0.9 END AS kappa,
-                    CASE WHEN a.gender='F' THEN -0.241 ELSE -0.302 END AS alpha
-                FROM z_k_adm a  where a.subject_id='{I["subject_id"]}' AND hadm_id='{I["hadm_id"]}'
-                )
+            #         ,a.gender, a.age_years,
+            #         /* κ, α 依性別 */
+            #         CASE WHEN a.gender='F' THEN 0.7 ELSE 0.9 END AS kappa,
+            #         CASE WHEN a.gender='F' THEN -0.241 ELSE -0.302 END AS alpha
+            #     FROM z_k_adm a  where a.subject_id='{I["subject_id"]}' AND hadm_id='{I["hadm_id"]}'
+            #     )
                 
-                SELECT
-                    subject_id, hadm_id,  lab, gender, age_years,
-                    ROUND(
-                    142
-                    * POW(LEAST(lab / kappa, 1), alpha)
-                    * POW(GREATEST(lab / kappa, 1), -1.200)
-                    * POW(0.9938, age_years)
-                    * CASE WHEN gender='F' THEN 1.012 ELSE 1.000 END
-                    ,1) AS egfr_data
-                FROM egfr
+            #     SELECT
+            #         subject_id, hadm_id,  lab, gender, age_years,
+            #         ROUND(
+            #         142
+            #         * POW(LEAST(lab / kappa, 1), alpha)
+            #         * POW(GREATEST(lab / kappa, 1), -1.200)
+            #         * POW(0.9938, age_years)
+            #         * CASE WHEN gender='F' THEN 1.012 ELSE 1.000 END
+            #         ,1) AS egfr_data
+            #     FROM egfr
 
-                """
-                rtn=connection.execute(text(SQL))
-                egfr_data = rtn.mappings().all()
+            #     """
+            #     rtn=connection.execute(text(SQL))
+            #     egfr_data = rtn.mappings().all()
 
-                SQL=f"""
+            #     SQL=f"""
 
-                WITH
-                egfr2  AS (
-                SELECT
-                    a.subject_id, a.hadm_id ,
-                    ( select b.valuenum 
+            #     WITH
+            #     egfr2  AS (
+            #     SELECT
+            #         a.subject_id, a.hadm_id ,
+            #         ( select b.valuenum 
                 
-                from labevents b    
-                where b.subject_id= a.subject_id and `b`.`hadm_id` = `a`.`hadm_id` AND itemid = 50912 AND b.valuenum IS NOT null
-                ORDER by b.charttime ASC LIMIT 1
-                ) as lab
+            #     from labevents b    
+            #     where b.subject_id= a.subject_id and `b`.`hadm_id` = `a`.`hadm_id` AND itemid = 50912 AND b.valuenum IS NOT null
+            #     ORDER by b.charttime ASC LIMIT 1
+            #     ) as lab
                     
-                    ,a.gender, a.age_years,
-                    /* κ, α 依性別 */
-                    CASE WHEN a.gender='F' THEN 0.7 ELSE 0.9 END AS kappa,
-                    CASE WHEN a.gender='F' THEN -0.241 ELSE -0.302 END AS alpha
-                FROM z_k_adm a  where a.subject_id='{I["subject_id"]}' AND hadm_id='{I["hadm_id"]}'
-                )
+            #         ,a.gender, a.age_years,
+            #         /* κ, α 依性別 */
+            #         CASE WHEN a.gender='F' THEN 0.7 ELSE 0.9 END AS kappa,
+            #         CASE WHEN a.gender='F' THEN -0.241 ELSE -0.302 END AS alpha
+            #     FROM z_k_adm a  where a.subject_id='{I["subject_id"]}' AND hadm_id='{I["hadm_id"]}'
+            #     )
                 
-                SELECT
-                    subject_id, hadm_id,  lab, gender, age_years,
-                    ROUND(
-                    142
-                    * POW(LEAST(lab / kappa, 1), alpha)
-                    * POW(GREATEST(lab / kappa, 1), -1.200)
-                    * POW(0.9938, age_years)
-                    * CASE WHEN gender='F' THEN 1.012 ELSE 1.000 END
-                    ,1) AS admit_egfr
-                FROM egfr2
+            #     SELECT
+            #         subject_id, hadm_id,  lab, gender, age_years,
+            #         ROUND(
+            #         142
+            #         * POW(LEAST(lab / kappa, 1), alpha)
+            #         * POW(GREATEST(lab / kappa, 1), -1.200)
+            #         * POW(0.9938, age_years)
+            #         * CASE WHEN gender='F' THEN 1.012 ELSE 1.000 END
+            #         ,1) AS admit_egfr
+            #     FROM egfr2
 
-                """
-                rtn=connection.execute(text(SQL))
-                admit_egfr = rtn.mappings().all()
+            #     """
+            #     rtn=connection.execute(text(SQL))
+            #     admit_egfr = rtn.mappings().all()
 
 
-                if egfr_data.__len__():
+            #     if egfr_data.__len__():
 
-                    SQL=f"""
-                    UPDATE z_k_adm SET
-                    EGFR='{egfr_data[0]["egfr_data"]}'
-                    ,admit_egfr='{admit_egfr[0]["admit_egfr"]}'
-                    WHERE subject_id='{I["subject_id"]}' AND hadm_id='{I["hadm_id"]}'
-                    """
-                    connection.execute(text(SQL))
+            #         SQL=f"""
+            #         UPDATE z_k_adm SET
+            #         EGFR='{egfr_data[0]["egfr_data"]}'
+            #         ,admit_egfr='{admit_egfr[0]["admit_egfr"]}'
+            #         WHERE subject_id='{I["subject_id"]}' AND hadm_id='{I["hadm_id"]}'
+            #         """
+            #         connection.execute(text(SQL))
 
-                    print(I)
-            connection.commit()
+            #         print(I)
+            # connection.commit()
             
 
 
@@ -998,7 +1000,7 @@ def adm_k2():#轉檔
                             '51222'
                         )
                         GROUP BY l.hadm_id
-                        HAVING COUNT(DISTINCT l.itemid) >= 8
+                        HAVING COUNT(DISTINCT l.itemid) >= 5
                     )
                     
                     
@@ -1137,6 +1139,28 @@ def TO_CSV():#轉檔
             df.to_csv(f"POTA_TRAN_DATA20260429/POTASSIUM.csv", index=False)
             print("POTASSIUM     轉CSV完成")
 
+            SQL = f"""
+           SELECT
+                a.hadm_id as stay_id,
+                a.charttime,
+                'URINE_OUTPUT' AS label,
+                a.value AS valuenum
+            FROM outputevents a
+            JOIN z_k_adm b
+            ON a.hadm_id  = b.hadm_id
+            WHERE 
+            a.charttime >= b.admittime + INTERVAL 24 HOUR
+            AND a.charttime <  b.dischtime + INTERVAL 48 HOUR
+
+            AND a.value IS NOT NULL
+            AND a.value > 0
+            """
+            df = pd.read_sql(text(SQL), connection)
+            df.to_csv(f"POTA_TRAN_DATA20260429/URINE.csv", index=False)
+            print("尿量     轉CSV完成")
+
+
+
               
         print("轉檔完成")
         return 0
@@ -1148,7 +1172,7 @@ def TO_CSV2():#轉檔
      
         with ENG.connect() as connection: 
             SQL = f"""
-            select subject_id , stay_id 
+            select distinct subject_id , stay_id 
             , admittime "t0",dischtime  "t_end"
             ,potassium  "y_hk" from z_k_adm zka 
             """
@@ -1187,6 +1211,30 @@ def TO_CSV2():#轉檔
             df = pd.read_sql(text(SQL), connection)
             df.to_csv(f"POTA_TRAN_DATA20260429/POTASSIUM.csv", index=False)
             print("POTASSIUM     轉CSV完成")
+
+            SQL = f"""
+           SELECT
+                a.hadm_id as stay_id,
+                a.charttime,
+                'URINE_OUTPUT' AS label,
+                a.value AS valuenum
+            FROM outputevents a
+            JOIN z_k_adm b
+            ON a.stay_id  = b.stay_id
+            WHERE 
+            -- a.charttime >= b.admittime + INTERVAL 24 HOUR
+           -- AND a.charttime <  b.dischtime + INTERVAL 48 HOUR
+
+            a.value IS NOT NULL
+            AND a.value > 0
+            """
+            df = pd.read_sql(text(SQL), connection)
+            df.to_csv(f"POTA_TRAN_DATA20260429/URINE.csv", index=False)
+            print("尿量     轉CSV完成")
+
+
+
+
 
               
         print("轉檔完成")

@@ -29,78 +29,6 @@ QUICK_TEST = os.getenv("QUICK_TEST", "false").lower() == "true"
 np.random.seed(RANDOM_STATE)
 tf.random.set_seed(RANDOM_STATE)
 
-
-def build_tensor2(char_h: pd.DataFrame, lab_h: pd.DataFrame, ur_h: pd.DataFrame,drug_h: pd.DataFrame, stays: pd.DataFrame
-                  ) -> Tuple[np.ndarray, List[str], pd.DataFrame]:
-    """
-    將 long format（char/lab/output 每筆事件一列）轉為三維張量 (N × T × F)
-    並處理：label→feature 映射、時間網格補齊、缺值處理、標準化。
-    """
-
-    # 1) 合併來源
-    frames = [x for x in [char_h, lab_h, ur_h,drug_h] if x is not None and not x.empty]
-    if not frames:
-        raise RuntimeError("No hourly features extracted.")
-    long = pd.concat(frames, ignore_index=True)
-
-    # 2) 安全數值轉換（避免 '103'、'nan'、'' 汙染）
-    #    如果來源欄叫 'value'，確保它是數字；無法轉的直接變 NaN
-    long["value"] = pd.to_numeric(long["value"], errors="coerce")
-
-    # 3) label → 統一的 feature 名稱；丟掉 map 不到的
-    long["feature"] = long["label"].map(FEATURE_MAP)
-    long = long.dropna(subset=["feature"])
-
-    # 4) 長轉寬（同一小時多筆取最後一筆）
-    wide = (long
-            .pivot_table(index=["stay_id","time_index"],
-                         columns="feature", values="value", aggfunc="last")
-            .reset_index())
-
-    # 5) 補滿 0..SEQ_HOURS-1 的時間格
-    grid = (stays[["stay_id"]].drop_duplicates().assign(key=1)
-            .merge(pd.DataFrame({"time_index": np.arange(SEQ_HOURS), "key": 1}), on="key")
-            .drop("key", axis=1))
-    wide = (grid.merge(wide, on=["stay_id","time_index"], how="left")
-                 .sort_values(["stay_id","time_index"]))
-
-    # 6) 缺值處理：先 per-stay 前向填補，再用整體中位數補
-    feat_cols = [c for c in wide.columns if c not in ["stay_id","time_index"]]
-
-    # 再保險一次：把可能殘留的字串數字轉成 float
-    wide[feat_cols] = wide[feat_cols].apply(pd.to_numeric, errors="coerce")
-
-    def _ff(g):#就是 LOCF（向前補值）
-        g[feat_cols] = g[feat_cols].ffill()
-        return g
-    wide = wide.groupby("stay_id", as_index=False).apply(_ff).reset_index(drop=True)
-
-    # 刪除「整欄都是 NaN」的特徵（避免 median 出問題）
-    all_nan_cols = [c for c in feat_cols if wide[c].isna().all()]
-    if all_nan_cols:
-        wide = wide.drop(columns=all_nan_cols)
-        feat_cols = [c for c in feat_cols if c not in all_nan_cols]
-
-    # 這時再算中位數並補
-    med = wide[feat_cols].median(numeric_only=True)
-    wide[feat_cols] = wide[feat_cols].fillna(med)
-
-
-    wide[feat_cols] = wide[feat_cols].astype("float32")
-
-
-    # 8) 組 N×T×F 張量
-    order = wide[["stay_id"]].drop_duplicates().values.ravel()
-    N, T, F = len(order), SEQ_HOURS, len(feat_cols)
-    X = np.zeros((N, T, F), dtype=np.float32)
-    for i, sid in enumerate(order):
-        blk = (wide[wide["stay_id"] == sid]
-               .sort_values("time_index")[feat_cols]
-               .values)
-        X[i, :, :] = blk[:T]
-
-    return X, feat_cols, pd.DataFrame({"stay_id": order})
-
 def build_tensor3(char_h, lab_h, ur_h, drug_h, stays):
 
     frames = [x for x in [char_h, lab_h, ur_h, drug_h] if x is not None and not x.empty]
@@ -141,6 +69,47 @@ def build_tensor3(char_h, lab_h, ur_h, drug_h, stays):
         grid.merge(wide, on=["stay_id", "time_index"], how="left")
         .sort_values(["stay_id", "time_index"])
     )
+    if "urine" in wide.columns:
+
+        # 差分（趨勢）
+        wide["urine_diff"] = (
+            wide.groupby("stay_id")["urine"]
+            .diff()
+            .fillna(0)
+        )
+
+        # rolling 平均（平滑）
+        wide["urine_roll3"] = (
+            wide.groupby("stay_id")["urine"]
+            .rolling(3, min_periods=1)
+            .mean()
+            .reset_index(level=0, drop=True)
+        )
+        wide["urine_slope"] = (
+            wide.groupby("stay_id")["urine"]
+            .diff(2)
+            .fillna(0)
+        )
+        #wide["urine_low"] = (wide["urine"] < 30).astype(int)
+        wide["urine_low_raw"] = np.where(
+            wide["urine"].notna(),
+            (wide["urine"] < 30).astype(int),
+            np.nan
+        )
+        wide["urine_6h_mean"] = (
+            wide.groupby("stay_id")["urine"]
+            .rolling(6, min_periods=1)
+            .mean()
+            .reset_index(level=0, drop=True)
+        )
+       
+                
+        
+    # 重新抓一次 feat_cols，讓新增特徵進模型
+    feat_cols = [c for c in wide.columns if c not in ["stay_id", "time_index"]]
+    wide[feat_cols] = wide[feat_cols].apply(pd.to_numeric, errors="coerce")
+    print([c for c in feat_cols if "urine" in c])
+    
 
     # ===== 加入年齡 =====
     age_df = stays[["stay_id", "age"]].drop_duplicates()
@@ -171,7 +140,7 @@ def build_tensor3(char_h, lab_h, ur_h, drug_h, stays):
     order = wide[["stay_id"]].drop_duplicates().values.ravel()
     N, T, F = len(order), SEQ_HOURS, len(feat_cols)
 
-    X = np.zeros((N, T, F), dtype=np.float32)
+    X = np.zeros((N, T, F), dtype=np.float32) 
 
     for i, sid in enumerate(order):
         blk = (
