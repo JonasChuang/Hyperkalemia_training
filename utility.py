@@ -12,9 +12,9 @@ import matplotlib.pyplot as plt
 
 #SEQ_HOURS = Hyperkalemia.SEQ_HOURS
 
-SEQ_HOURS = int(os.getenv("SEQ_HOURS", "48"))     # 特徵序列長度（0–24h）
+SEQ_HOURS = int(os.getenv("SEQ_HOURS", "72"))     # 特徵序列長度（0–24h）
 LBL_FROM  = int(os.getenv("LBL_FROM_H", "24"))    # 標籤視窗起點（相對 t0 小時）
-LBL_TO    = int(os.getenv("LBL_TO_H", "48"))      # 標籤視窗終點
+LBL_TO    = int(os.getenv("LBL_TO_H", "72"))      # 標籤視窗終點
 K_CUTOFF  = float(os.getenv("K_CUTOFF", "5.5"))   # 高血鉀閾值
 RANDOM_STATE = int(os.getenv("RANDOM_STATE", "42"))
 TEST_SIZE = float(os.getenv("TEST_SIZE", "0.2"))
@@ -22,8 +22,57 @@ VAL_SIZE  = float(os.getenv("VAL_SIZE",  "0.2"))
 
 
 
+# FEATURE_MAP = {
+#     # 生命徵象 (Vitals)
+#     'HEART RATE':'hr',
+#     'RESPIRATORY RATE':'rr',
+#     'SPO2':'spo2',
+#     'TEMPERATURE CELSIUS':'temp',
+#     'NON INVASIVE BLOOD PRESSURE SYSTOLIC':'sbp',
+#     'NON INVASIVE BLOOD PRESSURE DIASTOLIC':'dbp',
+#     'MEAN ARTERIAL PRESSURE (NIBP)':'map',
+    
+#     # 基本檢驗 (Basic Labs)
+#     'SODIUM':'sodium',
+#     'BICARBONATE':'bicarb',
+#     'CHLORIDE':'chloride',
+#     'CREATININE':'creatinine',
+#     'UREA NITROGEN':'bun',
+#     'GLUCOSE':'glucose',
+    
+#     # 額外檢驗 (Additional Labs) - 從 SQL 查詢中補充
+#     'ALBUMIN':'albumin',                    # 白蛋白
+#     'HEMOGLOBIN':'hemoglobin',              # 血色素
+#     #'FREE CALCIUM':'calcium',               # 游離鈣
+#     'PHOSPHATE':'phosphate',                # 血磷
+#     'URIC ACID':'uric_acid',                # 尿酸
+#     'CHOLESTEROL, TOTAL':'cholesterol',     # 總膽固醇
+#     'TRIGLYCERIDES':'triglycerides',        # 三酸甘油脂
+#     'CHOLESTEROL, LDL, CALCULATED':'ldl',   # 低密度膽固醇
+#     '% HEMOGLOBIN A1C':'hba1c',             # 糖化血色素
+#     'PROTEIN, URINE':'protein_urine',       # 蛋白尿
+#     'ESTIMATED GFR (MDRD EQUATION)':'egfr', # 腎絲球過濾率
+#     'PH':'pH', # 腎絲球過濾率
+#     'CO2':'Calculated Total CO2',
+#     'PCO2':'pCO2',
+#     'TOTAL PROTEIN, URINE':'TOTAL PROTEIN, URINE',
+#     #'PCO2_1':'pCO2, Body Fluid',
+    
+#     # 尿量 (Urine Output)
+#     'URINE_OUTPUT':'urine',
+#     #藥物
+#     'RAASi': 'drug_raasi',
+#     'K_SPARING': 'drug_k_sparing',
+#     'NSAID': 'drug_nsaid',
+#     'HEPARIN': 'drug_heparin',
+#     'LOOP': 'drug_loop',
+#     'THIAZIDE': 'drug_thiazide'
+    
+# }
+
 FEATURE_MAP = {
-    # 生命徵象 (Vitals)
+
+    # ===== Vital =====
     'HEART RATE':'hr',
     'RESPIRATORY RATE':'rr',
     'SPO2':'spo2',
@@ -31,42 +80,63 @@ FEATURE_MAP = {
     'NON INVASIVE BLOOD PRESSURE SYSTOLIC':'sbp',
     'NON INVASIVE BLOOD PRESSURE DIASTOLIC':'dbp',
     'MEAN ARTERIAL PRESSURE (NIBP)':'map',
-    
-    # 基本檢驗 (Basic Labs)
+
+    # ===== Electrolyte =====
     'SODIUM':'sodium',
-    'BICARBONATE':'bicarb',
+    'SODIUM, WHOLE BLOOD':'sodium',
+
     'CHLORIDE':'chloride',
+
+    # ⚠️ potassium 已排除（正確）
+    # 'POTASSIUM':'potassium',
+
+    # ===== Renal =====
     'CREATININE':'creatinine',
     'UREA NITROGEN':'bun',
+    'ESTIMATED GFR (MDRD EQUATION)':'egfr',
+
+    # ===== Acid-base（重要🔥）=====
+    'PH':'ph',
+    'PH, VENOUS':'ph',
+
+    'PCO2':'pco2',
+    'PCO2, VENOUS':'pco2',
+
+    'CALCULATED TOTAL CO2':'hco3',
+    'BICARBONATE':'hco3',
+
+    # ===== Metabolic =====
     'GLUCOSE':'glucose',
-    
-    # 額外檢驗 (Additional Labs) - 從 SQL 查詢中補充
-    'ALBUMIN':'albumin',                    # 白蛋白
-    'HEMOGLOBIN':'hemoglobin',              # 血色素
-    #'FREE CALCIUM':'calcium',               # 游離鈣
-    'PHOSPHATE':'phosphate',                # 血磷
-    'URIC ACID':'uric_acid',                # 尿酸
-    'CHOLESTEROL, TOTAL':'cholesterol',     # 總膽固醇
-    'TRIGLYCERIDES':'triglycerides',        # 三酸甘油脂
-    'CHOLESTEROL, LDL, CALCULATED':'ldl',   # 低密度膽固醇
-    '% HEMOGLOBIN A1C':'hba1c',             # 糖化血色素
-    'PROTEIN, URINE':'protein_urine',       # 蛋白尿
-    'ESTIMATED GFR (MDRD EQUATION)':'egfr', # 腎絲球過濾率
-    'PH':'pH', # 腎絲球過濾率
-    'CO2':'Calculated Total CO2',
-    'PCO2':'pCO2',
-    'PCO2_1':'pCO2, Body Fluid',
-    
-    # 尿量 (Urine Output)
+
+    # ===== Nutrition / protein =====
+    'ALBUMIN':'albumin',
+    'ALBUMIN, URINE':'albumin_urine',
+    'TOTAL PROTEIN, URINE':'protein_urine',
+
+    # ===== Hematology =====
+    'HEMOGLOBIN':'hemoglobin',
+
+    # ===== Lipid =====
+    'CHOLESTEROL, TOTAL':'cholesterol',
+    'CHOLESTEROL, LDL, CALCULATED':'ldl',
+    'CHOLESTEROL, HDL':'hdl',
+    'TRIGLYCERIDES':'triglycerides',
+
+    # ===== Other labs =====
+    'PHOSPHATE':'phosphate',
+    'URIC ACID':'uric_acid',
+    '% HEMOGLOBIN A1C':'hba1c',
+
+    # ===== Urine =====
     'URINE_OUTPUT':'urine',
-    #藥物
-    'RAASi': 'drug_raasi',
-    'K_SPARING': 'drug_k_sparing',
-    'NSAID': 'drug_nsaid',
-    'HEPARIN': 'drug_heparin',
-    'LOOP': 'drug_loop',
-    'THIAZIDE': 'drug_thiazide'
-    
+
+    # ===== Drugs =====
+    'RAASI':'drug_raasi',
+    'K_SPARING':'drug_k_sparing',
+    'NSAID':'drug_nsaid',
+    'HEPARIN':'drug_heparin',
+    'LOOP':'drug_loop',
+    'THIAZIDE':'drug_thiazide'
 }
 
 
@@ -84,10 +154,12 @@ def to_hourly(df_long: pd.DataFrame, t0_df: pd.DataFrame) -> pd.DataFrame:
     if df_long.empty:
         return pd.DataFrame(columns=["stay_id","time_index","label","value"])
     df = df_long.merge(t0_df[["stay_id","t0"]], on="stay_id", how="left")
-    #df["offset_h"] = (pd.to_datetime(df["charttime"]) - pd.to_datetime(df["t0"])).dt.total_seconds()/3600.0
-    df["offset_h"] = (pd.to_datetime(df["charttime"]) - pd.to_datetime(df["t0"])).dt.total_seconds()/7200.0
+
+    df["offset_h"] = (pd.to_datetime(df["charttime"]) - pd.to_datetime(df["t0"])).dt.total_seconds()/3600.0
+    #df["offset_h"] = (pd.to_datetime(df["charttime"]) - pd.to_datetime(df["t0"])).dt.total_seconds()/7200.0
     df = df[(df["offset_h"] >= 0) & (df["offset_h"] < SEQ_HOURS)].copy()
-    df["time_index"] = df["offset_h"].round().astype(int)
+   # df["time_index"] = df["offset_h"].round().astype(int)
+    df["time_index"] = np.floor(df["offset_h"]).astype(int)
     df.sort_values(["stay_id","label","charttime"], inplace=True)
     df = df.groupby(["stay_id","label","time_index"], as_index=False).tail(1)#同一小時若多筆只留最新值
     return df[["stay_id","label","time_index","valuenum"]].rename(columns={"valuenum":"value"})
@@ -101,10 +173,11 @@ def to_hourly_drug(df_drug: pd.DataFrame, stays: pd.DataFrame) -> pd.DataFrame:
 
     df = df_drug.merge(stays[["stay_id", "t0"]], on="stay_id", how="left")
 
-    df["offset_h"] = (pd.to_datetime(df["starttime"]) - pd.to_datetime(df["t0"])).dt.total_seconds()/7200.0
+    df["offset_h"] = (pd.to_datetime(df["starttime"]) - pd.to_datetime(df["t0"])).dt.total_seconds()/3600.0
     df = df[(df["offset_h"] >= 0) & (df["offset_h"] < SEQ_HOURS)].copy()
 
-    df["time_index"] = df["offset_h"].round().astype(int)
+    #df["time_index"] = df["offset_h"].round().astype(int)
+    df["time_index"] = np.floor(df["offset_h"]).astype(int)
 
     # 每一小時每一類藥物取 1（有給藥就算 1）
     df["value"] = 1
