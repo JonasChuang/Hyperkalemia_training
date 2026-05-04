@@ -714,7 +714,7 @@ def adm_k():#轉檔
                      AND lab.charttime <  a.admittime + INTERVAL 72 HOUR
 
 
-                        and (`lab`.`itemid` in ('50971','52610'))
+                        and (`lab`.`itemid` in (50971,52610, 50822, 52452))
                          --   and regexp_like(`lab`.`valuenum`, '^[0-9]+(\\.[0-9]+)?$')
                                 and (`lab`.`valuenum` >= 5.5))) as `POTASSIUM`
             
@@ -756,7 +756,7 @@ def adm_k():#轉檔
                               
                                     and `diagnoses_icd`.`hadm_id` = `a`.`hadm_id`
                                     and `diagnoses_icd`.`seq_num` 
-                                    -- in (1, 2, 3, 4, 5,6,7,8,9,10)
+                                     in (1, 2, 3, 4, 5,6,7,8,9,10)
                                     and    `diagnoses_icd`.`icd_version` = 10
                                          
                                     and (SUBSTRING(replace(`diagnoses_icd`.`icd_code`, '.', ''),1,4)
@@ -782,7 +782,7 @@ def adm_k():#轉檔
                     '51222','50820','50804','50818'
                 )
                 GROUP BY l.hadm_id
-                HAVING COUNT(DISTINCT l.itemid) >= 11
+                HAVING COUNT(DISTINCT l.itemid) >= 6
             )
             
             /*and  a.hadm_id IN (

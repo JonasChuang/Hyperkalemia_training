@@ -18,8 +18,10 @@ from sklearn.metrics import roc_auc_score, average_precision_score, f1_score, br
 import tensorflow as tf
 from keras import layers
 import keras
-import matplotlib.pyplot as plt
-from plt_shap import best_pr_thr, eval_block, plot_eval_radar,plot_eval_metrics,shap_show,bootstrap_PLT
+
+from plt_shap import  eval_block, plot_eval_radar,plot_eval_metrics,bootstrap_PLT
+from sklearn.linear_model import LogisticRegression
+from xgboost import XGBClassifier
 #from tool import sqlalchmy_raw_sql
 
 OUTDIR = os.getenv("OUTDIR", "./artifacts_hk_seq")
@@ -267,6 +269,79 @@ def bootstrap_ci(y, p, n_bootstrap=1000):
 
     return stats   # 🔥 改這裡（回傳 distribution）
 
+def run_logistic_regression(Xtr, Xva, Xte, ytr, yva, yte):
+    """
+    Logistic Regression baseline
+    input:
+        Xtr, Xva, Xte: (N, T, F)
+    output:
+        val_metrics, test_metrics, prob
+    """
+
+    # ===== flatten =====
+    Xtr_lr = Xtr.reshape(Xtr.shape[0], -1)
+    Xva_lr = Xva.reshape(Xva.shape[0], -1)
+    Xte_lr = Xte.reshape(Xte.shape[0], -1)
+
+    # ===== model =====
+    lr = LogisticRegression(
+        max_iter=1000,
+        class_weight="balanced",   # 🔥 不平衡很重要
+        n_jobs=-1
+    )
+
+    # ===== train =====
+    lr.fit(Xtr_lr, ytr)
+
+    # ===== predict =====
+    va_prob = lr.predict_proba(Xva_lr)[:, 1]
+    te_prob = lr.predict_proba(Xte_lr)[:, 1]
+
+    # ===== eval =====
+    val_metrics = eval_block(yva, va_prob, "VAL_LR")
+    test_metrics = eval_block(yte, te_prob, "TEST_LR")
+
+    return val_metrics, test_metrics, va_prob, te_prob
+
+def run_xgboost(Xtr, Xva, Xte, ytr, yva, yte):
+    """
+    XGBoost baseline
+    input:
+        Xtr, Xva, Xte: (N, T, F)
+    """
+
+    # flatten: (N, T, F) -> (N, T*F)
+    Xtr_xgb = Xtr.reshape(Xtr.shape[0], -1)
+    Xva_xgb = Xva.reshape(Xva.shape[0], -1)
+    Xte_xgb = Xte.reshape(Xte.shape[0], -1)
+
+    # class imbalance
+    pos = max(ytr.sum(), 1)
+    neg = max(len(ytr) - pos, 1)
+    scale_pos_weight = neg / pos
+
+    xgb = XGBClassifier(
+        n_estimators=300,
+        max_depth=3,
+        learning_rate=0.05,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        objective="binary:logistic",
+        eval_metric="aucpr",
+        scale_pos_weight=scale_pos_weight,
+        random_state=RANDOM_STATE,
+        n_jobs=-1
+    )
+
+    xgb.fit(Xtr_xgb, ytr)
+
+    va_prob = xgb.predict_proba(Xva_xgb)[:, 1]
+    te_prob = xgb.predict_proba(Xte_xgb)[:, 1]
+
+    val_metrics = eval_block(yva, va_prob, "VAL_XGB")
+    test_metrics = eval_block(yte, te_prob, "TEST_XGB")
+
+    return val_metrics, test_metrics, va_prob, te_prob, xgb
 
 def main(flg):
     os.makedirs(OUTDIR, exist_ok=True)
@@ -373,7 +448,26 @@ def main(flg):
     plot_eval_metrics(val_metrics, tag="VAL")#驗證集
     plot_eval_metrics(test_metrics, tag="TEST")#測試集
 
-    plot_eval_radar([val_metrics, test_metrics], ["VAL","TEST"])
+    #plot_eval_radar([val_metrics, test_metrics], ["VAL","TEST"])
+    print("==> Logistic Regression baseline")
+
+    val_lr, test_lr, va_prob_lr, te_prob_lr = run_logistic_regression(
+        Xtr, Xva, Xte,
+        ytr, yva, yte
+    )
+
+    plot_eval_radar(
+        [val_metrics, test_metrics, val_lr, test_lr],
+        ["VAL_GRU", "TEST_GRU", "VAL_LR", "TEST_LR"]
+    )
+
+    val_xgb, test_xgb, va_prob_xgb, te_prob_xgb, xgb_model = run_xgboost(
+        Xtr, Xva, Xte,
+        ytr, yva, yte
+    )
+        
+
+    
     bootstrap_PLT(yte,te_prob)
     print("train hk_rate:", ytr.mean())
     print("val hk_rate:", yva.mean())
