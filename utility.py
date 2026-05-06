@@ -1,12 +1,14 @@
 
-import os, json, joblib, numpy as np, pandas as pd, shap
+import os, json, joblib, numpy as np, pandas as pd, shap,re
 from typing import Dict, Tuple, List
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import roc_auc_score, average_precision_score, f1_score, brier_score_loss, precision_recall_curve,roc_curve
+from sklearn.metrics import roc_auc_score, average_precision_score, f1_score, brier_score_loss, precision_recall_curve,roc_curve, classification_report
 import tensorflow as tf
 from keras import layers
 import keras
 import matplotlib.pyplot as plt
+import xgboost as xgb
+from sklearn.model_selection import train_test_split
 
 #from  Hyperkalemia import SEQ_HOURS
 
@@ -183,3 +185,87 @@ def to_hourly_drug(df_drug: pd.DataFrame, stays: pd.DataFrame) -> pd.DataFrame:
     df["value"] = 1
 
     return df[["stay_id", "time_index", "label", "value"]]
+
+def xgb_feature_importance(CSV_PATH,LAB_NAME):
+    df = pd.read_csv(CSV_PATH)   # 你的CSV資料
+
+    # === 2. Pivot：將各項檢驗轉為欄位 ===
+    df_pivot = (
+        df.pivot_table(index='stay_id', columns='label', values='valuenum', aggfunc='mean')
+        .reset_index()
+    )
+
+    # === 3. 建立高血鉀標籤 ===
+    if 'POTASSIUM' not in df_pivot.columns:
+        raise ValueError("❗ 找不到 'POTASSIUM' 欄位，請確認資料中是否有血鉀 (K) 檢驗")
+    #血鉀建立標籤（>5.5 → 高血鉀=1）
+    df_pivot['target_hyperk'] = np.where(df_pivot['POTASSIUM'] > 5.5, 1, 0)
+    df_pivot = df_pivot.dropna(subset=['target_hyperk'])
+
+    # === 4. 特徵與標籤 ===
+    X = df_pivot.drop(columns=['stay_id', 'target_hyperk'])
+    y = df_pivot['target_hyperk'].astype(int)
+
+
+    # 5) 關鍵：排除任何「疑似血鉀」的特徵欄位，避免資料洩漏
+    #    規則：名稱含 potassium / k / k+（大小寫不敏感）
+    leak_regex = re.compile(r'(potassium|^k$|\bk\+$|\bk\b|serum[_\s-]*k)', flags=re.IGNORECASE)
+    leak_cols = [c for c in X.columns if leak_regex.search(str(c))]
+    if leak_cols:
+        print("🔒 移除疑似洩漏的血鉀相關欄位：", leak_cols)
+        X = X.drop(columns=leak_cols)
+
+    # 缺值填補
+    X = X.fillna(X.median())
+
+    # === 5. 訓練/測試切分 ===
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.3, random_state=42, stratify=y
+    )
+
+    # === 6. 建立 XGBoost 模型 ===
+    model = xgb.XGBClassifier(
+        n_estimators=500,
+        learning_rate=0.05,
+        max_depth=5,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        random_state=42,
+        eval_metric='auc'
+    )
+
+    model.fit(X_train, y_train)
+
+    # === 7. 評估 ===
+    y_pred = model.predict(X_test)
+    y_pred_prob = model.predict_proba(X_test)[:, 1]
+
+    auc = roc_auc_score(y_test, y_pred_prob)
+    print(f"\n✅ ROC-AUC = {auc:.4f}")
+    print(classification_report(y_test, y_pred, digits=3))
+
+    # === 8. 特徵重要度 ===
+    importance = pd.DataFrame({
+        'feature': X.columns,
+        'importance': model.feature_importances_
+    }).sort_values(by='importance', ascending=False)
+
+    print("\n📊 Top 10 重要特徵：")
+    print(importance.head(10))
+
+    # === 9. 可視化 ===
+    plt.figure(figsize=(8,6))
+    xgb.plot_importance(model, max_num_features=15, importance_type='gain')
+    plt.title("XGBoost Feature Importance (Gain)")
+    plt.show()
+
+    # === 10. SHAP 解釋 ===
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer.shap_values(X_test)
+
+    shap.summary_plot(shap_values, X_test, plot_type="bar", max_display=15)
+    shap.summary_plot(shap_values, X_test, max_display=15)
+
+    # === 11. 儲存結果 ===
+    importance.to_csv("xgboost_feature_importance.csv", index=False)
+    print("\n📁 已輸出：xgboost_feature_importance.csv")
