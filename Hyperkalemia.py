@@ -10,7 +10,8 @@ MIMIC-IV｜0–24h 每小時序列（排除 K）→ GRU → 預測 24–48h 高�
 - 指標：AUC, AUPRC, F1@PR最佳閾值, Brier
 輸出：./artifacts_hk_seq/ 下存模型與指標
 """
-from utility import FEATURE_MAP, to_hourly, to_hourly_drug,SEQ_HOURS,LBL_FROM,LBL_TO,K_CUTOFF,RANDOM_STATE,xgb_feature_importance
+from utility import (FEATURE_MAP, to_hourly, to_hourly_drug,SEQ_HOURS,LBL_FROM,LBL_TO,K_CUTOFF,RANDOM_STATE
+                     ,xgb_feature_importance,rfecv_feature_selection,boruta_feature_selection,xgb_feature_importance2)
 
 import os, json, joblib, numpy as np, pandas as pd
 from sklearn.preprocessing import StandardScaler
@@ -22,6 +23,7 @@ import keras
 from plt_shap import  eval_block, plot_eval_radar,plot_eval_metrics,bootstrap_PLT
 from sklearn.linear_model import LogisticRegression
 from xgboost import XGBClassifier
+from sklearn.calibration import CalibratedClassifierCV,calibration_curve
 #from tool import sqlalchmy_raw_sql
 
 OUTDIR = os.getenv("OUTDIR", "./artifacts_hk_seq")
@@ -302,6 +304,33 @@ def run_logistic_regression(Xtr, Xva, Xte, ytr, yva, yte):
     test_metrics = eval_block(yte, te_prob, "TEST_LR")
 
     return val_metrics, test_metrics, va_prob, te_prob
+def run_logistic_regression_latest(Xtr, Xva, Xte, ytr, yva, yte):
+    """
+    Logistic Regression baseline：只使用最後一個 time step 的資料
+    input:
+        Xtr, Xva, Xte: (N, T, F)
+    """
+
+    # 只取最後一小時資料：shape (N, F)
+    Xtr_lr = Xtr[:, -1, :]
+    Xva_lr = Xva[:, -1, :]
+    Xte_lr = Xte[:, -1, :]
+
+    lr = LogisticRegression(
+        max_iter=1000,
+        class_weight="balanced",
+        n_jobs=-1
+    )
+
+    lr.fit(Xtr_lr, ytr)
+
+    va_prob = lr.predict_proba(Xva_lr)[:, 1]
+    te_prob = lr.predict_proba(Xte_lr)[:, 1]
+
+    val_metrics = eval_block(yva, va_prob, "VAL_LR_LATEST")
+    test_metrics = eval_block(yte, te_prob, "TEST_LR_LATEST")
+
+    return val_metrics, test_metrics, va_prob, te_prob
 
 def run_xgboost(Xtr, Xva, Xte, ytr, yva, yte):
     """
@@ -410,8 +439,8 @@ def main(flg):
 
     
     print("==> 訓練 GRU")
-    model = build_gru((X.shape[1], X.shape[2]))
-    #model = build_lstm((X.shape[1], X.shape[2]))
+    #model = build_gru((X.shape[1], X.shape[2]))
+    model = build_lstm((X.shape[1], X.shape[2]))
     # 類別權重（不平衡）
     pos = max(ytr.sum(), 1); neg = max(len(ytr)-pos, 1)
     cw = {0: 0.5*len(ytr)/neg, 1: 0.5*len(ytr)/pos}
@@ -460,11 +489,36 @@ def main(flg):
         [val_metrics, test_metrics, val_lr, test_lr],
         ["VAL_GRU", "TEST_GRU", "VAL_LR", "TEST_LR"]
     )
+    print("==> Logistic Regression latest-data baseline")
+
+    val_lr_latest, test_lr_latest, va_prob_lr_latest, te_prob_lr_latest = run_logistic_regression_latest(
+        Xtr, Xva, Xte,
+        ytr, yva, yte
+    )
+    plot_eval_radar(
+        [val_metrics, test_metrics, val_lr, test_lr, val_lr_latest, test_lr_latest],
+        ["VAL_GRU", "TEST_GRU", "VAL_LR", "TEST_LR", "VAL_LR_LATEST", "TEST_LR_LATEST"]
+    )
+        
+
+    Xtr_xgb = Xtr.reshape(Xtr.shape[0], -1)
+    Xva_xgb = Xva.reshape(Xva.shape[0], -1)
+    Xte_xgb = Xte.reshape(Xte.shape[0], -1)
 
     val_xgb, test_xgb, va_prob_xgb, te_prob_xgb, xgb_model = run_xgboost(
         Xtr, Xva, Xte,
         ytr, yva, yte
     )
+    cal_model = CalibratedClassifierCV(xgb_model, method='isotonic', cv=5)
+    cal_model.fit(Xtr_xgb, ytr)
+    # predict
+    va_prob_cal = cal_model.predict_proba(Xva_xgb)[:, 1]
+    te_prob_cal = cal_model.predict_proba(Xte_xgb)[:, 1]
+
+    # 評估
+    val_cal = eval_block(yva, va_prob_cal, "VAL_XGB_CAL")
+    test_cal = eval_block(yte, te_prob_cal, "TEST_XGB_CAL")
+
         
 
     
@@ -502,8 +556,10 @@ def main(flg):
 
 if __name__ == "__main__":
    
-    #main("POTA_TRAN_DATA20260429")#POTA_20251016、SODIUM_20251016
-    xgb_feature_importance("POTA_TRAN_DATA20260429/fetch_labevents.csv", "POTASSIUM")
+    main("POTA_TRAN_DATA20260429")#POTA_20251016、SODIUM_20251016
+    #xgb_feature_importance2("POTA_TRAN_DATA20260429/fetch_labevents.csv", "POTASSIUM")
+    #rfecv_feature_selection("POTA_TRAN_DATA20260429/fetch_labevents.csv", "POTASSIUM")
+    #boruta_feature_selection("POTA_TRAN_DATA20260429/fetch_labevents.csv", "POTASSIUM")
     
     print("OK")
     

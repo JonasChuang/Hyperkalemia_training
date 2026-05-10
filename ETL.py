@@ -7,347 +7,45 @@ from sqlalchemy import create_engine, text
 #from main import ENG
 ENG = create_engine("mysql+pymysql://test:test@10.2.163.201:3306/mimic3_1")# 連接設定
 
-def adm_ckd():#轉檔
-    try:
 
-        sql_map={   #z_k_adm:高血鉀住院
-                    "z_k_adm":"""
-                            exists(
-                            select
-                                1
-                            from
-                                `diagnoses_icd`
-                            where
-                                ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
-                                    and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
-                                        and (`diagnoses_icd`.`seq_num` in (1, 2, 3, 4, 5,6,7))
-                                            and (((`diagnoses_icd`.`icd_version` = 10)
-                                                and (replace(`diagnoses_icd`.`icd_code`, '.', '') like 'E875%'))
-                                                or ((`diagnoses_icd`.`icd_version` = 9)
-                                                    and (replace(`diagnoses_icd`.`icd_code`, '.', '') like 'E875%')))))
-
-
-                            """,
-                    # z_ckd_adm:慢性腎臟病住院
-                    "z_ckd_adm":"""   exists(
-                                        select
-                                            1
-                                        from
-                                            `diagnoses_icd`
-                                        where
-                                            ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
-                                                and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
-                                                    and (`diagnoses_icd`.`seq_num` in (1, 2, 3, 4, 5,6,7))
-                                                        and (((`diagnoses_icd`.`icd_version` = 10)
-                                                            and (replace(`diagnoses_icd`.`icd_code`, '.', '') like 'N18%'))
-                                                            or ((`diagnoses_icd`.`icd_version` = 9)
-                                                                and (replace(`diagnoses_icd`.`icd_code`, '.', '') like '585%')))))
-
-                                                            """,
-                    #z_sodium_adm:低血鈉住院
-                    "z_sodium_adm":"""     exists(
-                    select
-                        1
-                    from
-                        `diagnoses_icd`
-                    where
-                        ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
-                            and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
-                                and (`diagnoses_icd`.`seq_num` in (1, 2, 3, 4, 5,6,7))
-                                    and (((`diagnoses_icd`.`icd_version` = 10)
-                                        and (replace(`diagnoses_icd`.`icd_code`, '.', '') like 'E871%'))
-                                        or ((`diagnoses_icd`.`icd_version` = 9)
-                                            and (replace(`diagnoses_icd`.`icd_code`, '.', '') like '2762%')))))
-                                              """,
-                     #z_aki_adm:AKI住院
-                    "z_aki_adm":"""     exists(
-                            select
-                                1
-                            from
-                                `diagnoses_icd`
-                            where
-                                ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
-                                    and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
-                                        and (`diagnoses_icd`.`seq_num` in (1, 2, 3, 4, 5,6,7))
-                                            and (((`diagnoses_icd`.`icd_version` = 10)
-                                                and substr(`diagnoses_icd`.`icd_code`,1,4) in('N170','N171','N172','N178') )
-                                               )))
-                                              """
+LAB_IN="""
+  
+                50852	, -- % Hemoglobin A1c
+                50862	, -- Albumin
+                51069	, -- Albumin, Urine
+                50804	, -- Calculated Total CO2
+                50806 ,-- Chloride, Whole Blood
+                50902 ,-- Chloride
+                50904	, -- Cholesterol, HDL
+                50905	, -- Cholesterol, LDL, Calculated
+                50907	, -- Cholesterol, Total
+                50912	, -- Creatinine
+                50808	, -- Free Calcium
+                50813 , -- Lactate
+                50893 , -- Calcium, Total 總鈣
+                50931	, -- Glucose
+                50960 , -- Magnesium 鎂離子
+                50811	, -- Hemoglobin
+                51222	, -- Hemoglobin
+                51301 ,  -- White Blood Cells
+                50818	, -- pCO2
+                50820	, -- pH
+                50970	, -- Phosphate
+                50971	, -- Potassium
+                52610	, -- Potassium
+                50822	, -- Potassium, Whole Blood
+                51992	, -- Protein
+                50983	, -- Sodium
+                52623	, -- Sodium
+                51102	, -- Total Protein, Urine
+                50998	, -- Transferrin
+                51000	, -- Triglycerides
+                -- 52642	, -- Troponin I
+                51006	, -- Urea Nitrogen
+                51007	-- Uric Acid
 
 
-        }
-        
-     
-        with ENG.connect() as connection: 
-            for table_name, condition in sql_map.items():
-                print(f"處理表格:{table_name}")
-                connection.execute(text("DELETE FROM "+table_name))
-                
-                SQL = f"""
-
-                    INSERT INTO mimic3_1.{table_name}
-                    (subject_id, hadm_id, admittime, dischtime,deathtime, admission_type, admit_provider_id, admission_location
-                    , insurance, marital_status, race, edregtime, edouttime, hospital_expire_flag, icd_1, icd_2, icd_3
-                , age_years, gender, aki, potassium, low_sodium,body_weight,body_height)
-
-                
-                    
-                        
-                select
-                `a`.`subject_id` as `subject_id`,
-                `a`.`hadm_id` as `hadm_id`,
-                `a`.`admittime` as `admittime`,
-                `a`.`dischtime` as `dischtime`,
-                `a`.`deathtime` as `deathtime`,
-                `a`.`admission_type` as `admission_type`,
-                `a`.`admit_provider_id` as `admit_provider_id`,
-                `a`.`admission_location` as `admission_location`,
-                -- `a`.`discharge_location` as `discharge_location`,
-                `a`.`insurance` as `insurance`,
-                -- `a`.`language` as `language`,
-                `a`.`marital_status` as `marital_status`,
-                `a`.`race` as `race`,
-                `a`.`edregtime` as `edregtime`,
-                `a`.`edouttime` as `edouttime`,
-                `a`.`hospital_expire_flag` as `hospital_expire_flag`,
-                (
-                select
-                    (case
-                        when regexp_like(`diagnoses_icd`.`icd_code`, '^250|^E10|^E11|^E13') then 'Diabetes'
-                        when regexp_like(`diagnoses_icd`.`icd_code`, '^401|^405|^I10|^I15|^410|^411|^414|^428|^4292|^440|^4439|^I21|^I25|^I50|^I70') then 'Cardiovascular'
-                        when regexp_like(`diagnoses_icd`.`icd_code`, '^2777|^272|^E88.81|^E78|^278|^E66') then 'Metabolic'
-                        else `diagnoses_icd`.`icd_code`
-                    end)
-                from
-                    `diagnoses_icd`
-                where
-                    ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
-                        and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
-                            and (`diagnoses_icd`.`seq_num` = 1))) as `ICD_1`,
-                (
-                select
-                    (case
-                        when regexp_like(`diagnoses_icd`.`icd_code`, '^250|^E10|^E11|^E13') then 'Diabetes'
-                        when regexp_like(`diagnoses_icd`.`icd_code`, '^401|^405|^I10|^I15|^410|^411|^414|^428|^4292|^440|^4439|^I21|^I25|^I50|^I70') then 'Cardiovascular'
-                        when regexp_like(`diagnoses_icd`.`icd_code`, '^2777|^272|^E88.81|^E78|^278|^E66') then 'Metabolic'
-                        else `diagnoses_icd`.`icd_code`
-                    end)
-                from
-                    `diagnoses_icd`
-                where
-                    ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
-                        and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
-                            and (`diagnoses_icd`.`seq_num` = 2))) as `ICD_2`,
-                (
-                select
-                    (case
-                        when regexp_like(`diagnoses_icd`.`icd_code`, '^250|^E10|^E11|^E13') then 'Diabetes'
-                        when regexp_like(`diagnoses_icd`.`icd_code`, '^401|^405|^I10|^I15|^410|^411|^414|^428|^4292|^440|^4439|^I21|^I25|^I50|^I70') then 'Cardiovascular'
-                        when regexp_like(`diagnoses_icd`.`icd_code`, '^2777|^272|^E88.81|^E78|^278|^E66') then 'Metabolic'
-                        else `diagnoses_icd`.`icd_code`
-                    end)
-                from
-                    `diagnoses_icd`
-                where
-                    ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
-                        and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
-                            and (`diagnoses_icd`.`seq_num` = 3))) as `ICD_3`,
-                ((`patients`.`anchor_age` + year(`a`.`admittime`)) - `patients`.`anchor_year`) as `age_years`,
-                `patients`.`gender` as `gender`,
-                (
-                select
-                    (case
-                        when (count(0) > 0) then '1'
-                        else 0
-                    end)
-                from
-                    `diagnoses_icd`
-                where
-                    ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
-                    and (`diagnoses_icd`.`seq_num` in (1, 2, 3, 4, 5))
-                        and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
-                            and ((`diagnoses_icd`.`icd_code` like 'N170%')
-                                or (`diagnoses_icd`.`icd_code` like 'N179')
-                                    or (`diagnoses_icd`.`icd_code` like '5849')))) as `AKI`,
-                (
-                select
-                    (case
-                        when (count(0) > 0) then '1'
-                        else 0
-                    end)
-                from
-                    `labevents` `lab`
-                where
-                    ((`lab`.`subject_id` = `a`.`subject_id`)
-                        and (`lab`.`hadm_id` = `a`.`hadm_id`)
-                        AND lab.charttime >= a.admittime
-                        AND lab.charttime <  DATE_ADD(a.admittime, INTERVAL 24 HOUR)
-                            and (`lab`.`itemid` in ('50971','52610','50822','52452'))
-                                and regexp_like(`lab`.`valuenum`, '^[0-9]+(\\.[0-9]+)?$')
-                                    and (`lab`.`valuenum` >= '5.5'))) as `POTASSIUM`,
-                (
-                select
-                    (case
-                        when (count(0) > 0) then '1'
-                        else 0
-                    end)
-                from
-                    `labevents` `lab`
-                where
-                    ((`lab`.`subject_id` = `a`.`subject_id`)
-                        and (`lab`.`hadm_id` = `a`.`hadm_id`)
-                        AND lab.charttime >= a.admittime
-                        AND lab.charttime <  DATE_ADD(a.admittime, INTERVAL 24 HOUR)
-                            and `lab`.`itemid` in ('50983','52623')
-                                and regexp_like(`lab`.`valuenum`, '^[0-9]+(\\.[0-9]+)?$')
-                                    and (`lab`.`valuenum` <= '135'))) as `low_sodium`
-
-                ,(select
-                    ce.valuenum 
-                        
-                    FROM mimic3_1.chartevents ce
-                    -- JOIN mimic3_1.d_items di ON di.itemid = ce.itemid
-                    where ce.subject_id=a.subject_id and ce.hadm_id =a.hadm_id  and  ce.itemid in('224639','226512')
-                        AND ce.valuenum IS NOT NULL
-                        -- 合理範圍過濾，避免錄入錯誤
-                    
-                        LIMIT 1
-                        
-                        ) as body_weight,
-                        (
-                        select
-                    ce.valuenum 
-                        
-                    FROM mimic3_1.chartevents ce
-                    -- JOIN mimic3_1.d_items di ON di.itemid = ce.itemid
-                    where ce.subject_id=a.subject_id and ce.hadm_id =a.hadm_id  and  ce.itemid in('226730')
-                        AND ce.valuenum IS NOT NULL
-                        -- 合理範圍過濾，避免錄入錯誤
-                    
-                        LIMIT 1
-                        
-                        )as body_height
-                from
-                    `admissions` `a`
-                join `patients` on
-                    ((`patients`.`subject_id` = `a`.`subject_id` AND`patients`.`anchor_year_group` in ('2020 - 2022', '2017 - 2019') ))
-                where 
-                {condition}
-                
-                """
-                connection.execute(text(SQL))
-                print(f"{table_name} 轉檔完成")
-                SQL=f"""  select a.subject_id,a.hadm_id from {table_name}  a where exists(
-                        select * from labevents b where  b.subject_id= a.subject_id 
-                        and `b`.`hadm_id` = `a`.`hadm_id` AND b.itemid = 50912 
-                        AND b.valuenum IS NOT null
-                        )
-                """
-                rtn=connection.execute(text(SQL))
-                results2 = rtn.mappings().all()
-
-                SQL=f"""-- 更新BMI
-                update {table_name} set 
-                bmi = ROUND(body_weight / POW(body_height / 100, 2), 2)
-                WHERE body_height IS NOT NULL AND body_weight IS NOT null
-                """
-
-                connection.execute(text(SQL))
-
-                for I in results2:
-                    SQL=f"""
-
-                    WITH
-                    egfr  AS (
-                    SELECT
-                        a.subject_id, a.hadm_id ,
-                        ( select b.valuenum 
-                    
-                    from labevents b    
-                    where b.subject_id= a.subject_id and `b`.`hadm_id` = `a`.`hadm_id` AND itemid = 50912 AND b.valuenum IS NOT null
-                    ORDER by b.charttime DESC LIMIT 1
-                    ) as lab
-                        
-                        ,a.gender, a.age_years,
-                        /* κ, α 依性別 */
-                        CASE WHEN a.gender='F' THEN 0.7 ELSE 0.9 END AS kappa,
-                        CASE WHEN a.gender='F' THEN -0.241 ELSE -0.302 END AS alpha
-                    FROM {table_name} a  where a.subject_id='{I["subject_id"]}' AND hadm_id='{I["hadm_id"]}'
-                    )
-                    
-                    SELECT
-                        subject_id, hadm_id,  lab, gender, age_years,
-                        ROUND(
-                        142
-                        * POW(LEAST(lab / kappa, 1), alpha)
-                        * POW(GREATEST(lab / kappa, 1), -1.200)
-                        * POW(0.9938, age_years)
-                        * CASE WHEN gender='F' THEN 1.012 ELSE 1.000 END
-                        ,1) AS egfr_data
-                    FROM egfr
-
-                    """
-                    rtn=connection.execute(text(SQL))
-                    egfr_data = rtn.mappings().all()
-
-                    SQL=f"""
-
-                    WITH
-                    egfr2  AS (
-                    SELECT
-                        a.subject_id, a.hadm_id ,
-                        ( select b.valuenum 
-                    
-                    from labevents b    
-                    where b.subject_id= a.subject_id and `b`.`hadm_id` = `a`.`hadm_id` AND itemid = 50912 AND b.valuenum IS NOT null
-                    ORDER by b.charttime ASC LIMIT 1
-                    ) as lab
-                        
-                        ,a.gender, a.age_years,
-                        /* κ, α 依性別 */
-                        CASE WHEN a.gender='F' THEN 0.7 ELSE 0.9 END AS kappa,
-                        CASE WHEN a.gender='F' THEN -0.241 ELSE -0.302 END AS alpha
-                    FROM {table_name} a  where a.subject_id='{I["subject_id"]}' AND hadm_id='{I["hadm_id"]}'
-                    )
-                    
-                    SELECT
-                        subject_id, hadm_id,  lab, gender, age_years,
-                        ROUND(
-                        142
-                        * POW(LEAST(lab / kappa, 1), alpha)
-                        * POW(GREATEST(lab / kappa, 1), -1.200)
-                        * POW(0.9938, age_years)
-                        * CASE WHEN gender='F' THEN 1.012 ELSE 1.000 END
-                        ,1) AS admit_egfr
-                    FROM egfr2
-
-                    """
-                    rtn=connection.execute(text(SQL))
-                    admit_egfr = rtn.mappings().all()
-
-
-                    if egfr_data.__len__():
-
-                        SQL=f"""
-                        UPDATE {table_name} SET
-                        EGFR='{egfr_data[0]["egfr_data"]}'
-                        ,admit_egfr='{admit_egfr[0]["admit_egfr"]}'
-                        WHERE subject_id='{I["subject_id"]}' AND hadm_id='{I["hadm_id"]}'
-                        """
-                        connection.execute(text(SQL))
-
-                        print(I)
-            connection.commit()
-            
-
-
-            #print(table_name+",完成")
-        print("轉檔完成")
-        return 0
-    except Exception as Error:
-        print("CSV_TO_DB 錯誤!!!!!!! \n"+str(Error))
-
-
+"""
 def CKD_LAB():#轉檔
     try:
         
@@ -391,18 +89,15 @@ def CKD_LAB():#轉檔
             AND a.hadm_id    = b.hadm_id
             JOIN d_labitems c 
                 ON c.itemid = a.itemid
-            WHERE a.itemid IN (
-                50920,51006,50912,50862,50811,50808,50970,51007,
-                50907,50904,51102,50998,50905,50852,50931,51002,
-                51992,51069,52703,
-                50971,52610,50822,52452,
-                50983,52623,52455,
-                51222,50820,50804,50818
-            )
+            WHERE a.itemid IN (  {LAB_IN}    )
+             
+        
             -- AND a.charttime >= b.admittime + INTERVAL 24 HOUR
-            -- AND a.charttime <  b.dischtime + INTERVAL 48 HOUR
+            -- AND a.charttime <  b.dischtime + INTERVAL 72 HOUR
             AND a.valuenum REGEXP '^[0-9]+(\\.[0-9]+)?$'
-            AND a.valuenum != 0;
+            AND a.valuenum != 0
+             AND a.valuenum is not NULL 
+            ;
             
             """
             connection.execute(text(SQL))
@@ -714,7 +409,7 @@ def adm_k():#轉檔
                      AND lab.charttime <  a.admittime + INTERVAL 72 HOUR
 
 
-                        and (`lab`.`itemid` in (50971,52610, 50822, 52452))
+                        and (`lab`.`itemid` in (50971,52610, 50822))
                          --   and regexp_like(`lab`.`valuenum`, '^[0-9]+(\\.[0-9]+)?$')
                                 and (`lab`.`valuenum` >= 5.5))) as `POTASSIUM`
             
@@ -774,12 +469,7 @@ def adm_k():#轉檔
                 SELECT l.hadm_id
                 FROM labevents l
                 WHERE l.subject_id =a.subject_id and l.hadm_id = a.hadm_id and l.itemid IN (
-                    '50920','51006','50912','50862','50811','50808','50970','51007',
-                    '50907','50904','51102','50998','50905','50852','50931','51002',
-                    '51992','51069','52703',
-                    '50971','52610','50822','52452',
-                    '50983','52623','52455',
-                    '51222','50820','50804','50818'
+                   {LAB_IN}
                 )
                 GROUP BY l.hadm_id
                 HAVING COUNT(DISTINCT l.itemid) >= 6
@@ -936,7 +626,7 @@ def adm_k():#轉檔
     except Exception as Error:
         print("adm_k 錯誤!!!!!!! \n"+str(Error))
 
-def adm_k2():#轉檔
+def adm_k3():#轉檔
     try:
         #         select subject_id , hadm_id as "stay_id"
         # , admittime "t0",dischtime  "t_end"
@@ -950,86 +640,328 @@ def adm_k2():#轉檔
             SQL = f"""
 
                 INSERT INTO mimic3_1.z_k_adm
-                (subject_id, hadm_id,stay_id, admittime, dischtime , potassium,anchor_age)
+                (subject_id, hadm_id, admittime, dischtime,deathtime, admission_type, admit_provider_id, admission_location
+                , insurance, marital_status, race, edregtime, edouttime, hospital_expire_flag, icd_1, icd_2, icd_3
+            , age_years, gender,  potassium, body_weight,body_height)
                
            
-                    SELECT
-                            icu.subject_id,
-                            icu.hadm_id,
-                            icu.stay_id,
-                            icu.intime AS t0,
-                            icu.outtime,
-                            (
-                                    select
-                                        (case
-                                            when (count(0) > 0) then '1'
-                                            else 0
-                                        end)
-                                    from
-                                        `labevents` `lab`
-                                    where
-                                        ((`lab`.`subject_id` = `icu`.`subject_id`)
-                                            and (`lab`.`hadm_id` = `icu`.`hadm_id`)
-                                        -- AND lab.charttime >= .admittime
-                                            -- AND lab.charttime <  DATE_ADD(a.admittime, INTERVAL 24 HOUR)
-                                            AND lab.charttime >= icu.intime + INTERVAL 24 HOUR
-                                            AND lab.charttime <  icu.outtime + INTERVAL 48 HOUR
+            select
+            `a`.`subject_id` as `subject_id`,
+            `a`.`hadm_id` as `hadm_id`,
+            `a`.`admittime` as `admittime`,
+            `a`.`dischtime` as `dischtime`,
+            `a`.`deathtime` as `deathtime`,
+            `a`.`admission_type` as `admission_type`,
+            `a`.`admit_provider_id` as `admit_provider_id`,
+            `a`.`admission_location` as `admission_location`,
+            -- `a`.`discharge_location` as `discharge_location`,
+            `a`.`insurance` as `insurance`,
+            -- `a`.`language` as `language`,
+            `a`.`marital_status` as `marital_status`,
+            `a`.`race` as `race`,
+            `a`.`edregtime` as `edregtime`,
+            `a`.`edouttime` as `edouttime`,
+            `a`.`hospital_expire_flag` as `hospital_expire_flag`,
+            (
+            select
+                (case
+                    when regexp_like(`diagnoses_icd`.`icd_code`, '^250|^E10|^E11|^E13') then 'Diabetes'
+                    when regexp_like(`diagnoses_icd`.`icd_code`, '^401|^405|^I10|^I15|^410|^411|^414|^428|^4292|^440|^4439|^I21|^I25|^I50|^I70') then 'Cardiovascular'
+                    when regexp_like(`diagnoses_icd`.`icd_code`, '^2777|^272|^E88.81|^E78|^278|^E66') then 'Metabolic'
+                    else `diagnoses_icd`.`icd_code`
+                end)
+            from
+                `diagnoses_icd`
+            where
+                ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
+                    and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
+                        and (`diagnoses_icd`.`seq_num` = 1))) as `ICD_1`,
+            (
+            select
+                (case
+                    when regexp_like(`diagnoses_icd`.`icd_code`, '^250|^E10|^E11|^E13') then 'Diabetes'
+                    when regexp_like(`diagnoses_icd`.`icd_code`, '^401|^405|^I10|^I15|^410|^411|^414|^428|^4292|^440|^4439|^I21|^I25|^I50|^I70') then 'Cardiovascular'
+                    when regexp_like(`diagnoses_icd`.`icd_code`, '^2777|^272|^E88.81|^E78|^278|^E66') then 'Metabolic'
+                    else `diagnoses_icd`.`icd_code`
+                end)
+            from
+                `diagnoses_icd`
+            where
+                ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
+                    and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
+                        and (`diagnoses_icd`.`seq_num` = 2))) as `ICD_2`,
+            (
+            select
+                (case
+                    when regexp_like(`diagnoses_icd`.`icd_code`, '^250|^E10|^E11|^E13') then 'Diabetes'
+                    when regexp_like(`diagnoses_icd`.`icd_code`, '^401|^405|^I10|^I15|^410|^411|^414|^428|^4292|^440|^4439|^I21|^I25|^I50|^I70') then 'Cardiovascular'
+                    when regexp_like(`diagnoses_icd`.`icd_code`, '^2777|^272|^E88.81|^E78|^278|^E66') then 'Metabolic'
+                    else `diagnoses_icd`.`icd_code`
+                end)
+            from
+                `diagnoses_icd`
+            where
+                ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
+                    and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
+                        and (`diagnoses_icd`.`seq_num` = 3))) as `ICD_3`,
+            ((`patients`.`anchor_age` + year(`a`.`admittime`)) - `patients`.`anchor_year`) as `age_years`,
+            `patients`.`gender` as `gender`,
+            
+            (
+            select
+                (case
+                    when (count(0) > 0) then '1'
+                    else 0
+                end)
+            from
+                `labevents` `lab`
+            where
+                ((`lab`.`subject_id` = `a`.`subject_id`)
+                    and (`lab`.`hadm_id` = `a`.`hadm_id`)
+                   --  AND lab.charttime >= a.admittime
+                    
+                     AND lab.charttime >= a.admittime + INTERVAL 24 HOUR
+                     AND lab.charttime <  a.admittime + INTERVAL 72 HOUR
 
 
-                                                and (`lab`.`itemid` in ('50971','52610'))
-                                                --   and regexp_like(`lab`.`valuenum`, '^[0-9]+(\\.[0-9]+)?$')
-                                                        and (`lab`.`valuenum` >= 5.5))) as `POTASSIUM`,p.anchor_age
-                        FROM icustays icu
-                        JOIN admissions adm ON icu.hadm_id = adm.hadm_id
+                        and (`lab`.`itemid` in (50971,52610, 50822, 52452))
+                         --   and regexp_like(`lab`.`valuenum`, '^[0-9]+(\\.[0-9]+)?$')
+                                and (`lab`.`valuenum` >= 5.5))) as `POTASSIUM`
+            
+            ,(select
+                ce.valuenum 
+                    
+                FROM mimic3_1.chartevents ce
+                -- JOIN mimic3_1.d_items di ON di.itemid = ce.itemid
+                where ce.subject_id=a.subject_id and ce.hadm_id =a.hadm_id  and  ce.itemid in('224639','226512')
+                    AND ce.valuenum IS NOT NULL
+                    -- 合理範圍過濾，避免錄入錯誤
+                
+                    LIMIT 1
+                    
+                    ) as body_weight,
+                    (
+                    select
+                ce.valuenum 
+                    
+                FROM mimic3_1.chartevents ce
+                -- JOIN mimic3_1.d_items di ON di.itemid = ce.itemid
+                where ce.subject_id=a.subject_id and ce.hadm_id =a.hadm_id  and  ce.itemid in('226730')
+                    AND ce.valuenum IS NOT NULL
+                    -- 合理範圍過濾，避免錄入錯誤
+                
+                    LIMIT 1
+                    
+                    )as body_height
+                    
+            from
+                `admissions` `a`
+            join `patients` on
+                ((`patients`.`subject_id` = `a`.`subject_id` AND`patients`.`anchor_year_group` in ('2020 - 2022', '2017 - 2019') ))
+              --   ((`patients`.`subject_id` = `a`.`subject_id` AND`patients`.`anchor_year_group` in ('2020 - 2022') ))
+            where 
+
+              patients.anchor_age >=18
+            AND exists (
+             
+              select     1  from `labevents` `lab`
+           
+          
+               
+            where
+                ((`lab`.`subject_id` = `a`.`subject_id`)
+                    and (`lab`.`hadm_id` = `a`.`hadm_id`)
+                   --  AND lab.charttime >= a.admittime
+                    
+                     AND lab.charttime >= a.admittime + INTERVAL 24 HOUR
+                     AND lab.charttime <  a.admittime + INTERVAL 72 HOUR
+
+
+                        and (`lab`.`itemid` in (50971,52610, 50822, 52452))
+                         --   and regexp_like(`lab`.`valuenum`, '^[0-9]+(\\.[0-9]+)?$')
+                                and (`lab`.`valuenum` >= 5.5))
+             )
+              AND    a.hadm_id IN (
+                SELECT l.hadm_id
+                FROM labevents l
+                WHERE l.subject_id =a.subject_id and l.hadm_id = a.hadm_id and l.itemid IN (
+                    {LAB_IN}   
+                )
+                  AND l.valuenum is not NULL 
+                GROUP BY l.hadm_id
+                 HAVING COUNT(DISTINCT l.itemid) >= 6
+                )
+           
+                    
+            
+            """
+            connection.execute(text(SQL))
+            connection.commit()
+            SQL=f"""
+            INSERT INTO mimic3_1.z_k_adm
+                (subject_id, hadm_id, admittime, dischtime,deathtime, admission_type, admit_provider_id, admission_location
+                , insurance, marital_status, race, edregtime, edouttime, hospital_expire_flag, icd_1, icd_2, icd_3
+            , age_years, gender,  potassium, body_weight,body_height)
+            select
+                        `a`.`subject_id` as `subject_id`,
+                        `a`.`hadm_id` as `hadm_id`,
+                        `a`.`admittime` as `admittime`,
+                        `a`.`dischtime` as `dischtime`,
+                        `a`.`deathtime` as `deathtime`,
+                        `a`.`admission_type` as `admission_type`,
+                        `a`.`admit_provider_id` as `admit_provider_id`,
+                        `a`.`admission_location` as `admission_location`,
+                        -- `a`.`discharge_location` as `discharge_location`,
+                        `a`.`insurance` as `insurance`,
+                        -- `a`.`language` as `language`,
+                        `a`.`marital_status` as `marital_status`,
+                        `a`.`race` as `race`,
+                        `a`.`edregtime` as `edregtime`,
+                        `a`.`edouttime` as `edouttime`,
+                        `a`.`hospital_expire_flag` as `hospital_expire_flag`,
+                        (
+                        select
+                            (case
+                                when regexp_like(`diagnoses_icd`.`icd_code`, '^250|^E10|^E11|^E13') then 'Diabetes'
+                                when regexp_like(`diagnoses_icd`.`icd_code`, '^401|^405|^I10|^I15|^410|^411|^414|^428|^4292|^440|^4439|^I21|^I25|^I50|^I70') then 'Cardiovascular'
+                                when regexp_like(`diagnoses_icd`.`icd_code`, '^2777|^272|^E88.81|^E78|^278|^E66') then 'Metabolic'
+                                else `diagnoses_icd`.`icd_code`
+                            end)
+                        from
+                            `diagnoses_icd`
+                        where
+                            ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
+                                and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
+                                    and (`diagnoses_icd`.`seq_num` = 1))) as `ICD_1`,
+                        (
+                        select
+                            (case
+                                when regexp_like(`diagnoses_icd`.`icd_code`, '^250|^E10|^E11|^E13') then 'Diabetes'
+                                when regexp_like(`diagnoses_icd`.`icd_code`, '^401|^405|^I10|^I15|^410|^411|^414|^428|^4292|^440|^4439|^I21|^I25|^I50|^I70') then 'Cardiovascular'
+                                when regexp_like(`diagnoses_icd`.`icd_code`, '^2777|^272|^E88.81|^E78|^278|^E66') then 'Metabolic'
+                                else `diagnoses_icd`.`icd_code`
+                            end)
+                        from
+                            `diagnoses_icd`
+                        where
+                            ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
+                                and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
+                                    and (`diagnoses_icd`.`seq_num` = 2))) as `ICD_2`,
+                        (
+                        select
+                            (case
+                                when regexp_like(`diagnoses_icd`.`icd_code`, '^250|^E10|^E11|^E13') then 'Diabetes'
+                                when regexp_like(`diagnoses_icd`.`icd_code`, '^401|^405|^I10|^I15|^410|^411|^414|^428|^4292|^440|^4439|^I21|^I25|^I50|^I70') then 'Cardiovascular'
+                                when regexp_like(`diagnoses_icd`.`icd_code`, '^2777|^272|^E88.81|^E78|^278|^E66') then 'Metabolic'
+                                else `diagnoses_icd`.`icd_code`
+                            end)
+                        from
+                            `diagnoses_icd`
+                        where
+                            ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
+                                and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
+                                    and (`diagnoses_icd`.`seq_num` = 3))) as `ICD_3`,
+                        ((`patients`.`anchor_age` + year(`a`.`admittime`)) - `patients`.`anchor_year`) as `age_years`,
+                        `patients`.`gender` as `gender`,
                         
-                        JOIN patients p
-                            ON (icu.subject_id = p.subject_id  AND`P`.`anchor_year_group` in ('2020 - 2022') )
-                        WHERE adm.admission_type <> 'NEWBORN'
-                        AND icu.outtime IS NOT NULL
-                        AND icu.outtime >= DATE_ADD(icu.intime, INTERVAL 48 HOUR)
+                        (
+                        select
+                            (case
+                                when (count(0) > 0) then '1'
+                                else 0
+                            end)
+                        from
+                            `labevents` `lab`
+                        where
+                            ((`lab`.`subject_id` = `a`.`subject_id`)
+                                and (`lab`.`hadm_id` = `a`.`hadm_id`)
+                            --  AND lab.charttime >= a.admittime
+                                
+                                AND lab.charttime >= a.admittime + INTERVAL 24 HOUR
+                                AND lab.charttime <  a.admittime + INTERVAL 72 HOUR
+
+
+                                    and (`lab`.`itemid` in (50971,52610, 50822))
+                                    --   and regexp_like(`lab`.`valuenum`, '^[0-9]+(\\.[0-9]+)?$')
+                                            and (`lab`.`valuenum` >= 5.5))) as `POTASSIUM`
                         
-                        AND    icu.hadm_id IN (
-                        SELECT l.hadm_id
-                        FROM labevents l
-                        WHERE l.subject_id =icu.subject_id and l.hadm_id = icu.hadm_id and l.itemid IN (
-                            '50920','51006','50912','50862','50811','50808','50970','51007',
-                            '50907','50904','51102','50998','50905','50852','50931','51002',
-                            '51992','51069','52703',
-                            '50971','52610','50822','52452',
-                            '50983','52623','52455',
-                            '51222'
+                        ,(select
+                            ce.valuenum 
+                                
+                            FROM mimic3_1.chartevents ce
+                            -- JOIN mimic3_1.d_items di ON di.itemid = ce.itemid
+                            where ce.subject_id=a.subject_id and ce.hadm_id =a.hadm_id  and  ce.itemid in('224639','226512')
+                                AND ce.valuenum IS NOT NULL
+                                -- 合理範圍過濾，避免錄入錯誤
+                            
+                                LIMIT 1
+                                
+                                ) as body_weight,
+                                (
+                                select
+                            ce.valuenum 
+                                
+                            FROM mimic3_1.chartevents ce
+                            -- JOIN mimic3_1.d_items di ON di.itemid = ce.itemid
+                            where ce.subject_id=a.subject_id and ce.hadm_id =a.hadm_id  and  ce.itemid in('226730')
+                                AND ce.valuenum IS NOT NULL
+                                -- 合理範圍過濾，避免錄入錯誤
+                            
+                                LIMIT 1
+                                
+                                )as body_height
+                                
+                        from
+                            `admissions` `a`
+                        join `patients` on
+                          ((`patients`.`subject_id` = `a`.`subject_id` AND`patients`.`anchor_year_group` in ('2020 - 2022', '2017 - 2019') ))
+                        --    ((`patients`.`subject_id` = `a`.`subject_id` AND`patients`.`anchor_year_group` in ('2020 - 2022') ))
+                        where 
+
+                        exists(
+                                    select  1 from `diagnoses_icd` where `diagnoses_icd`.`subject_id` = `a`.`subject_id`
+                                        
+                                                and `diagnoses_icd`.`hadm_id` = `a`.`hadm_id`
+                                                and `diagnoses_icd`.`seq_num` 
+                                                in (1, 2, 3, 4, 5,6,7,8,9,10)
+                                                and    `diagnoses_icd`.`icd_version` = 10
+                                                    
+                                                and (SUBSTRING(replace(`diagnoses_icd`.`icd_code`, '.', ''),1,4)
+                                                in( 'E875','N181','N182','N183','N184','N185','N186','N189'  )
+                                                    )              
+                                        
+                            )
+                        AND patients.anchor_age >=18
+                    
+                        
+                                
+                        
+                            AND    a.hadm_id IN (
+                            SELECT l.hadm_id
+                            FROM labevents l
+                            WHERE l.subject_id =a.subject_id and l.hadm_id = a.hadm_id and l.itemid IN (
+                                {LAB_IN}   
+                            )
+                             AND l.valuenum is not NULL 
+                            GROUP BY l.hadm_id
+                            HAVING COUNT(DISTINCT l.itemid) >= 6
                         )
-                        GROUP BY l.hadm_id
-                        HAVING COUNT(DISTINCT l.itemid) >= 5
-                    )
-                    
-                    
-                    AND NOT EXISTS (
-                        SELECT 1
-                        FROM labevents l
-                        WHERE l.subject_id = icu.subject_id
-                            AND l.hadm_id = icu.hadm_id
-                            AND l.itemid IN (50971, 52610)
-                            AND l.valuenum >= 5.5
-                            AND l.charttime < icu.intime
-                    )
-                    
-                    
-                    
-            
-            
-
+                        
+                        and not exists (
+                        
+                        select * from z_k_adm  where z_k_adm.subject_id = a.subject_id and z_k_adm.hadm_id =a.hadm_id
+                        
+                        )
             
             """
             connection.execute(text(SQL))
             connection.commit()
            
 
-        print("轉檔完成")
+        print("z_k_adm 轉檔完成")
         return 0
     except Exception as Error:
         print("adm_k 錯誤!!!!!!! \n"+str(Error))
-
 
 
 def adm_k_drug():#轉檔
@@ -1245,7 +1177,7 @@ def TO_CSV2():#轉檔
 if __name__ == "__main__":
     
     
-    adm_k()
+    adm_k3()
     adm_k_drug()
    
     CKD_LAB()

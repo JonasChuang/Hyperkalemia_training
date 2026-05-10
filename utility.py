@@ -8,8 +8,10 @@ from keras import layers
 import keras
 import matplotlib.pyplot as plt
 import xgboost as xgb
-from sklearn.model_selection import train_test_split
-
+from sklearn.model_selection import train_test_split,StratifiedKFold
+from sklearn.feature_selection import RFECV
+from sklearn.ensemble import RandomForestClassifier
+from boruta import BorutaPy
 #from  Hyperkalemia import SEQ_HOURS
 
 #SEQ_HOURS = Hyperkalemia.SEQ_HOURS
@@ -24,54 +26,6 @@ VAL_SIZE  = float(os.getenv("VAL_SIZE",  "0.2"))
 
 
 
-# FEATURE_MAP = {
-#     # 生命徵象 (Vitals)
-#     'HEART RATE':'hr',
-#     'RESPIRATORY RATE':'rr',
-#     'SPO2':'spo2',
-#     'TEMPERATURE CELSIUS':'temp',
-#     'NON INVASIVE BLOOD PRESSURE SYSTOLIC':'sbp',
-#     'NON INVASIVE BLOOD PRESSURE DIASTOLIC':'dbp',
-#     'MEAN ARTERIAL PRESSURE (NIBP)':'map',
-    
-#     # 基本檢驗 (Basic Labs)
-#     'SODIUM':'sodium',
-#     'BICARBONATE':'bicarb',
-#     'CHLORIDE':'chloride',
-#     'CREATININE':'creatinine',
-#     'UREA NITROGEN':'bun',
-#     'GLUCOSE':'glucose',
-    
-#     # 額外檢驗 (Additional Labs) - 從 SQL 查詢中補充
-#     'ALBUMIN':'albumin',                    # 白蛋白
-#     'HEMOGLOBIN':'hemoglobin',              # 血色素
-#     #'FREE CALCIUM':'calcium',               # 游離鈣
-#     'PHOSPHATE':'phosphate',                # 血磷
-#     'URIC ACID':'uric_acid',                # 尿酸
-#     'CHOLESTEROL, TOTAL':'cholesterol',     # 總膽固醇
-#     'TRIGLYCERIDES':'triglycerides',        # 三酸甘油脂
-#     'CHOLESTEROL, LDL, CALCULATED':'ldl',   # 低密度膽固醇
-#     '% HEMOGLOBIN A1C':'hba1c',             # 糖化血色素
-#     'PROTEIN, URINE':'protein_urine',       # 蛋白尿
-#     'ESTIMATED GFR (MDRD EQUATION)':'egfr', # 腎絲球過濾率
-#     'PH':'pH', # 腎絲球過濾率
-#     'CO2':'Calculated Total CO2',
-#     'PCO2':'pCO2',
-#     'TOTAL PROTEIN, URINE':'TOTAL PROTEIN, URINE',
-#     #'PCO2_1':'pCO2, Body Fluid',
-    
-#     # 尿量 (Urine Output)
-#     'URINE_OUTPUT':'urine',
-#     #藥物
-#     'RAASi': 'drug_raasi',
-#     'K_SPARING': 'drug_k_sparing',
-#     'NSAID': 'drug_nsaid',
-#     'HEPARIN': 'drug_heparin',
-#     'LOOP': 'drug_loop',
-#     'THIAZIDE': 'drug_thiazide'
-    
-# }
-
 FEATURE_MAP = {
 
     # ===== Vital =====
@@ -85,9 +39,10 @@ FEATURE_MAP = {
 
     # ===== Electrolyte =====
     'SODIUM':'sodium',
-    'SODIUM, WHOLE BLOOD':'sodium',
+    #'SODIUM, WHOLE BLOOD':'sodium',
 
-    'CHLORIDE':'chloride',
+    'CHLORIDE':'chloride', #氯離子有很多種測量方式，且與血鉀的關聯性不明顯，暫不納入（可後續再評估）
+    'Chloride, Whole Blood':'Chloride, Whole Blood',
 
     # ⚠️ potassium 已排除（正確）
     # 'POTASSIUM':'potassium',
@@ -95,28 +50,36 @@ FEATURE_MAP = {
     # ===== Renal =====
     'CREATININE':'creatinine',
     'UREA NITROGEN':'bun',
-    'ESTIMATED GFR (MDRD EQUATION)':'egfr',
+    #'EGFR':'egfr',
+    #'Estimated GFR (MDRD equation)':'egfr',
 
     # ===== Acid-base（重要🔥）=====
     'PH':'ph',
-    'PH, VENOUS':'ph',
+    #'PH, VENOUS':'ph',
+    'FREE CALCIUM':'free_calcium',
 
     'PCO2':'pco2',
-    'PCO2, VENOUS':'pco2',
+    #'PCO2, VENOUS':'pco2',
 
     'CALCULATED TOTAL CO2':'hco3',
+    'CALCIUM, TOTAL':'calcium_total',
     'BICARBONATE':'hco3',
 
     # ===== Metabolic =====
     'GLUCOSE':'glucose',
+    'WHITE BLOOD CELLS':'white_blood_cells',
 
     # ===== Nutrition / protein =====
     'ALBUMIN':'albumin',
     'ALBUMIN, URINE':'albumin_urine',
     'TOTAL PROTEIN, URINE':'protein_urine',
+    'PROTEIN':'Protein',
 
     # ===== Hematology =====
     'HEMOGLOBIN':'hemoglobin',
+    'TRANSFERRIN':'transferrin',
+    'LACTATE':'lactate',
+    'MAGNESIUM':'magnesium',
 
     # ===== Lipid =====
     'CHOLESTEROL, TOTAL':'cholesterol',
@@ -269,3 +232,294 @@ def xgb_feature_importance(CSV_PATH,LAB_NAME):
     # === 11. 儲存結果 ===
     importance.to_csv("xgboost_feature_importance.csv", index=False)
     print("\n📁 已輸出：xgboost_feature_importance.csv")
+
+def xgb_feature_importance2(CSV_PATH, LAB_NAME="POTASSIUM"):
+
+    df = pd.read_csv(CSV_PATH)
+
+    # === 1. Pivot：將各項檢驗轉為欄位 ===
+    df_pivot = (
+        df.pivot_table(
+            index="stay_id",
+            columns="label",
+            values="valuenum",
+            aggfunc="mean"
+        )
+        .reset_index()
+    )
+
+    # === 2. 建立 target ===
+    if LAB_NAME not in df_pivot.columns:
+        raise ValueError(f"❗ 找不到 '{LAB_NAME}' 欄位，請確認資料中是否有此檢驗")
+
+    df_pivot["target_hyperk"] = np.where(df_pivot[LAB_NAME] > 5.5, 1, 0)
+
+    # === 3. 特徵與標籤 ===
+    X = df_pivot.drop(columns=["stay_id", "target_hyperk"])
+    y = df_pivot["target_hyperk"].astype(int)
+
+    # === 4. 移除血鉀相關欄位，避免資料洩漏 ===
+    leak_regex = re.compile(
+        r"(potassium|^k$|\bk\+$|\bk\b|serum[_\s-]*k)",
+        flags=re.IGNORECASE
+    )
+
+    leak_cols = [c for c in X.columns if leak_regex.search(str(c))]
+
+    if leak_cols:
+        print("🔒 移除疑似洩漏的血鉀相關欄位：", leak_cols)
+        X = X.drop(columns=leak_cols)
+
+    # === 5. 缺值填補 ===
+    X = X.apply(pd.to_numeric, errors="coerce")
+    X = X.fillna(X.median())
+
+    # === 6. Train / Test split ===
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=0.3,
+        random_state=42,
+        stratify=y
+    )
+
+    # === 7. XGBoost model ===
+    model = xgb.XGBClassifier(
+        n_estimators=500,
+        learning_rate=0.05,
+        max_depth=5,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        random_state=42,
+        eval_metric="auc",
+        n_jobs=-1
+    )
+
+    model.fit(X_train, y_train)
+
+    # === 8. 評估 ===
+    y_pred = model.predict(X_test)
+    y_pred_prob = model.predict_proba(X_test)[:, 1]
+
+    auc = roc_auc_score(y_test, y_pred_prob)
+
+    print(f"\n✅ ROC-AUC = {auc:.4f}")
+    print(classification_report(y_test, y_pred, digits=3))
+
+    # === 9. XGBoost Gain Importance ===
+    booster = model.get_booster()
+    gain_dict = booster.get_score(importance_type="gain")
+
+    importance = (
+        pd.DataFrame({
+            "feature": list(gain_dict.keys()),
+            "importance_gain": list(gain_dict.values())
+        })
+        .sort_values("importance_gain", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    print("\n📊 Top 15 重要特徵：")
+    print(importance.head(15))
+
+    importance.to_csv("xgboost_feature_importance.csv", index=False, encoding="utf-8-sig")
+
+    # === 10. XGBoost importance plot ===
+    plt.figure(figsize=(8, 6))
+    xgb.plot_importance(
+        model,
+        max_num_features=15,
+        importance_type="gain"
+    )
+    plt.title("XGBoost Feature Importance (Gain)")
+    plt.tight_layout()
+    plt.savefig("xgb_feature_importance_gain.png", dpi=300, bbox_inches="tight")
+    plt.show()
+
+    # === 11. SHAP 解釋 ===
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer.shap_values(X_test)
+
+    # SHAP bar plot
+    shap.summary_plot(
+        shap_values,
+        X_test,
+        plot_type="bar",
+        max_display=15,
+        show=False
+    )
+    plt.tight_layout()
+    plt.savefig("shap_summary_bar.png", dpi=300, bbox_inches="tight")
+    plt.show()
+
+    # SHAP beeswarm plot
+    shap.summary_plot(
+        shap_values,
+        X_test,
+        max_display=15,
+        show=False
+    )
+    plt.tight_layout()
+    plt.savefig("shap_summary_beeswarm.png", dpi=300, bbox_inches="tight")
+    plt.show()
+
+    print("\n📁 已輸出：")
+    print(" - xgboost_feature_importance.csv")
+    print(" - xgb_feature_importance_gain.png")
+    print(" - shap_summary_bar.png")
+    print(" - shap_summary_beeswarm.png")
+
+    return model, importance
+
+def rfecv_feature_selection(CSV_PATH,LAB_NAME):#RFECV
+    df = pd.read_csv(CSV_PATH)   # 你的CSV檔案名稱
+
+    # === 2. Pivot，每位病人各檢驗平均值 ===
+    df_pivot = (
+        df.pivot_table(index='stay_id', columns='label', values='valuenum', aggfunc='mean')
+        .reset_index()
+    )
+
+    # === 3. 定義高血鉀標籤 ===
+    # 若資料中有 POTASSIUM 欄位，設定 K > 5.5 為高血鉀
+    if 'POTASSIUM' not in df_pivot.columns:
+        raise ValueError("❗ 資料中沒有 'POTASSIUM' 欄位，無法建立高血鉀標籤。請確認 CSV 是否包含血鉀 (K) 檢驗。")
+
+    df_pivot['target_hyperk'] = np.where(df_pivot['POTASSIUM'] > 5.5, 1, 0)
+    df_pivot = df_pivot.dropna(subset=['target_hyperk'])
+
+    # === 4. 特徵矩陣 X、標籤 y ===
+    X = df_pivot.drop(columns=['stay_id', 'target_hyperk'])
+    y = df_pivot['target_hyperk'].astype(int)
+
+    # 5) 關鍵：排除任何「疑似血鉀」的特徵欄位，避免資料洩漏
+    #    規則：名稱含 potassium / k / k+（大小寫不敏感）
+    leak_regex = re.compile(r'(potassium|^k$|\bk\+$|\bk\b|serum[_\s-]*k)', flags=re.IGNORECASE)
+    leak_cols = [c for c in X.columns if leak_regex.search(str(c))]
+    if leak_cols:
+        print("🔒 移除疑似洩漏的血鉀相關欄位：", leak_cols)
+        X = X.drop(columns=leak_cols)
+
+
+
+    # 填補缺值
+    X = X.fillna(X.median())
+
+    # === 5. RFECV 特徵選擇 ===
+    rf = RandomForestClassifier(
+        n_estimators=200,
+        random_state=42,
+        class_weight='balanced'
+    )
+
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+    rfecv = RFECV(
+        estimator=rf,
+        step=1,
+        cv=cv,
+        scoring='roc_auc',
+        n_jobs=-1
+    )
+
+    rfecv.fit(X, y)
+
+    # === 6. 結果輸出 ===
+    feature_ranks = pd.DataFrame({
+        'feature': X.columns,
+        'ranking': rfecv.ranking_,
+        'selected': rfecv.support_
+    }).sort_values(by='ranking')
+
+    print("\n✅ RFECV 選出的重要特徵：")
+    print(feature_ranks[feature_ranks['selected'] == True])
+
+    mean_test_scores = np.mean(rfecv.cv_results_['mean_test_score'], axis=0) \
+    if isinstance(rfecv.cv_results_['mean_test_score'], list) else rfecv.cv_results_['mean_test_score']
+
+
+
+
+    # === 7. 視覺化 CV 結果 ===
+    plt.figure(figsize=(8, 5))
+    plt.title('RFECV Cross-Validation Score')
+    plt.xlabel('Number of features selected')
+    plt.ylabel('Cross-validation ROC-AUC')
+    #plt.plot(range(1, len(rfecv.cv_results_) + 1), rfecv.cv_results_, marker='o')
+    plt.plot(range(1, len(mean_test_scores) + 1), mean_test_scores, marker='o')
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+    # === 8. 儲存結果 ===
+    feature_ranks.to_csv("rfecv_feature_ranking.csv", index=False)
+    print("\n📁 已輸出：rfecv_feature_ranking.csv")
+    return 0
+
+def boruta_feature_selection(CSV_PATH,LAB_NAME):#Boruta
+    #LAB_NAME:要預測的檢驗名稱
+    """
+    使用 Boruta 方法從實驗室檢驗數據中選擇重要特徵，以預測高血鉀（K > 5.5 mEq/L）。
+    輸入資料假設為 CSV 格式，包含欄位：stay_id, charttime, label, valuenum。
+    """
+    # === 1. 讀取原始資料 ===
+    df = pd.read_csv(CSV_PATH)   # 你的CSV，例如 stay_id, charttime, label, valuenum
+
+    # === 2. 整理資料 ===
+    # 將每個 stay_id 各檢驗項目轉為欄位（Pivot）
+    df_pivot = (
+        df.pivot_table(index='stay_id', columns='label', values='valuenum', aggfunc='mean')
+        .reset_index()
+    )
+
+    # === 3. 建立標籤變數 y ===
+    # 定義高血鉀（K > 5.5 mEq/L）為 1，否則 0
+    df_pivot['target_hyperk'] = np.where(df_pivot[LAB_NAME] > 5.5, 1, 0)
+
+    # 若部分資料沒有血鉀值，先移除
+    df_pivot = df_pivot.dropna(subset=['target_hyperk'])
+
+    # === 4. 特徵矩陣與標籤 ===
+    X = df_pivot.drop(columns=['stay_id', 'target_hyperk'])
+    y = df_pivot['target_hyperk'].astype(int)
+
+    leak_regex = re.compile(r'(potassium|^k$|\bk\+$|\bk\b|serum[_\s-]*k)', flags=re.IGNORECASE)
+    leak_cols = [c for c in X.columns if leak_regex.search(str(c))]
+    if leak_cols:
+        print("🔒 移除疑似洩漏的血鉀相關欄位：", leak_cols)
+        X = X.drop(columns=leak_cols)
+
+
+    # 處理缺值
+    X = X.fillna(X.median())
+
+    # === 5. 建立隨機森林 + Boruta 特徵選擇器 ===
+    rf = RandomForestClassifier(
+        n_jobs=-1,
+        class_weight='balanced',
+        max_depth=7,
+        random_state=42
+    )
+
+    boruta_selector = BorutaPy(
+        rf,
+        n_estimators='auto',
+        verbose=2,
+        random_state=42
+    )
+
+    boruta_selector.fit(X.values, y.values)
+
+    # === 6. 結果輸出 ===
+    feature_ranks = pd.DataFrame({
+        'feature': X.columns,
+        'rank': boruta_selector.ranking_,
+        'selected': boruta_selector.support_
+    }).sort_values(by='rank')
+
+    print("\n✅ Boruta 選出的重要特徵：")
+    print(feature_ranks[feature_ranks['selected'] == True])
+
+    # === 7. 儲存結果 ===
+    feature_ranks.to_csv("boruta_feature_ranking.csv", index=False)
+    print("\n📁 已輸出：boruta_feature_ranking.csv")
