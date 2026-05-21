@@ -4,6 +4,8 @@ import pandas as pd
 from tqdm import tqdm
 from sqlalchemy import create_engine, text
 
+from scipy.stats import mannwhitneyu,chi2_contingency,ttest_ind
+
 #from main import ENG
 ENG = create_engine("mysql+pymysql://test:test@10.2.163.201:3306/mimic3_1")# 連接設定
 
@@ -68,7 +70,7 @@ def CKD_LAB():#轉檔
                 ref_range_lower,
                 ref_range_upper,
                 flag,
-                comments
+                comments,hk
             )
             SELECT  
                 a.itemid,
@@ -83,6 +85,7 @@ def CKD_LAB():#轉檔
                 a.ref_range_upper,
                 a.flag,
                 a.comments
+                , case when a.charttime < b.hk_datetime then b.potassium else '0' end as hk
             FROM z_k_adm b
             JOIN labevents a 
                 ON a.subject_id = b.subject_id 
@@ -102,6 +105,133 @@ def CKD_LAB():#轉檔
             """
             connection.execute(text(SQL))
             connection.commit()
+
+            my_list = ['HEART RATE','RESPIRATORY RATE','SPO2','TEMPERATURE CELSIUS','NON INVASIVE BLOOD PRESSURE SYSTOLIC','NON INVASIVE BLOOD PRESSURE DIASTOLIC','MEAN ARTERIAL PRESSURE (NIBP)']
+            #for item in my_list:
+
+            SQL = f"""
+            
+            INSERT INTO z_k_lab (
+                itemid,
+                lab_name,
+                valuenum,
+                subject_id,
+                hadm_id,
+                charttime,
+                fluid,
+                category,
+                hk
+            )
+            SELECT ce.itemid, UPPER(di.label) AS label,valuenum,w.subject_id, ce.hadm_id,charttime
+                ,'' as fluid,'' as category
+                -- w.potassium as hk
+                , case when ce.charttime < w.hk_datetime then w.potassium else '0' end as hk
+              
+
+                    
+                FROM chartevents ce
+                JOIN d_items di ON di.itemid = ce.itemid
+                JOIN z_k_adm   w    ON w.hadm_id = ce.hadm_id
+                WHERE ce.valuenum IS NOT NULL
+                AND ce.charttime >= w.admittime + INTERVAL 24 HOUR
+                AND ce.charttime <  w.dischtime + INTERVAL 72 HOUR
+                AND UPPER(di.label) = 'HEART RATE'
+            ;
+            
+            """
+            connection.execute(text(SQL))
+            connection.commit()
+
+            SQL = f"""
+            -- 轉檔EGFR
+            INSERT INTO z_k_lab (
+                itemid,
+                lab_name,
+                valuenum,
+                subject_id,
+                hadm_id,
+                charttime,hk
+                
+                
+            )
+              
+                SELECT 1 AS itemid,'MDRD_EGFR' AS lab_name
+
+                
+                , ROUND(
+                    175 *
+                    POW(a.valuenum, -1.154) *
+                    POW(b.age_years, -0.203) *
+                    CASE 
+                        WHEN b.gender = 'F' THEN 0.742
+                        ELSE 1
+                    END
+                ,2) AS valuenum,
+
+                a.subject_id,
+                a.hadm_id,
+                a.charttime
+                -- ,b.potassium as hk
+                   , case when a.charttime < b.hk_datetime then b.potassium else '0' end as hk
+              
+
+            
+            FROM z_k_lab  a
+            JOIN z_k_adm  b  ON (a.subject_id = b.subject_id and a.hadm_id = b.hadm_id )
+            
+
+            WHERE a.itemid = 50912
+            AND a.valuenum IS NOT NULL
+            AND a.valuenum > 0
+            AND b.age_years IS NOT NULL
+
+           /* UNION
+
+            SELECT itemid,'EPI_EGFR' AS lab_name
+                a.subject_id,
+                a.hadm_id,
+                a.charttime,
+                a.valuenum AS creatinine,
+                b.gender,
+                b.age_years,
+
+                ROUND(
+                    142
+                    * POW(LEAST(a.valuenum / 
+                        CASE WHEN b.gender = 'F' THEN 0.7 ELSE 0.9 END, 1),
+                        CASE WHEN b.gender = 'F' THEN -0.241 ELSE -0.302 END)
+                    * POW(GREATEST(a.valuenum / 
+                        CASE WHEN b.gender = 'F' THEN 0.7 ELSE 0.9 END, 1), -1.200)
+                    * POW(0.9938, b.age_years)
+                    * CASE WHEN b.gender = 'F' THEN 1.012 ELSE 1 END
+                , 2) AS epi_egfr
+                , ROUND(
+                    175 *
+                    POW(a.valuenum, -1.154) *
+                    POW(b.age_years, -0.203) *
+                    CASE 
+                        WHEN b.gender = 'F' THEN 0.742
+                        ELSE 1
+                    END
+                ,2) AS mdrd_egfr
+
+            FROM z_k_lab  a
+            JOIN z_k_adm  b  ON (a.subject_id = b.subject_id and a.hadm_id = b.hadm_id )
+            
+
+            WHERE a.itemid = 50912
+            AND a.valuenum IS NOT NULL
+            AND a.valuenum > 0
+            AND b.age_years IS NOT NULL
+            */
+
+            """
+            connection.execute(text(SQL))
+            connection.commit()
+
+
+
+
 
      
         SQL = f"""
@@ -144,9 +274,9 @@ def CKD_TO_STAT_EXCEL():#統計轉EXCEL
         SQL_MAP={"z_k_adm":"z_k_lab"   }
         # 根據表格名稱設定工作表名稱
         sheet_names = {
-            "z_ckd_adm": "慢性腎臟病統計",
+            #"z_ckd_adm": "慢性腎臟病統計",
             "z_k_adm": "高血鉀統計", 
-            "z_sodium_adm": "低血鈉統計"
+            #"z_sodium_adm": "低血鈉統計"
         }
         
         # 創建 Excel 檔案路徑
@@ -642,7 +772,7 @@ def adm_k3():#轉檔
                 INSERT INTO mimic3_1.z_k_adm
                 (subject_id, hadm_id, admittime, dischtime,deathtime, admission_type, admit_provider_id, admission_location
                 , insurance, marital_status, race, edregtime, edouttime, hospital_expire_flag, icd_1, icd_2, icd_3
-            , age_years, gender,  potassium, body_weight,body_height)
+            , age_years, gender,  potassium,hk_datetime, body_weight,body_height)
                
            
             select
@@ -727,6 +857,25 @@ def adm_k3():#轉檔
                         and (`lab`.`itemid` in (50971,52610, 50822, 52452))
                          --   and regexp_like(`lab`.`valuenum`, '^[0-9]+(\\.[0-9]+)?$')
                                 and (`lab`.`valuenum` >= 5.5))) as `POTASSIUM`
+             ,(
+            select
+                lab.charttime
+            from
+                `labevents` `lab`
+            where
+                ((`lab`.`subject_id` = `a`.`subject_id`)
+                    and (`lab`.`hadm_id` = `a`.`hadm_id`)
+                   --  AND lab.charttime >= a.admittime
+                    
+                     AND lab.charttime >= a.admittime + INTERVAL 24 HOUR
+                     AND lab.charttime <  a.admittime + INTERVAL 72 HOUR
+
+
+                        and (`lab`.`itemid` in (50971,52610, 50822, 52452))
+                         --   and regexp_like(`lab`.`valuenum`, '^[0-9]+(\\.[0-9]+)?$')
+                                and (`lab`.`valuenum` >= 5.5))
+                                order by charttime asc limit 1
+                                ) as `hk_datetime`
             
             ,(select
                 ce.valuenum 
@@ -923,7 +1072,7 @@ def adm_k3():#轉檔
                                         
                                                 and `diagnoses_icd`.`hadm_id` = `a`.`hadm_id`
                                                 and `diagnoses_icd`.`seq_num` 
-                                                in (1, 2, 3, 4, 5,6,7,8,9,10)
+                                                in (1, 2, 3, 4, 5)
                                                 and    `diagnoses_icd`.`icd_version` = 10
                                                     
                                                 and (SUBSTRING(replace(`diagnoses_icd`.`icd_code`, '.', ''),1,4)
@@ -1027,6 +1176,97 @@ def adm_k_drug():#轉檔
                 )
             
             """
+            SQL="""
+             INSERT INTO z_k_drug
+                (hadm_id, starttime, drug, valuenum,hk)
+              SELECT
+                a.hadm_id,
+                a.starttime,
+
+                CASE
+                    -- RAASi
+                    WHEN drug_lower LIKE '%lisinopril%' THEN 'RAASi'
+                    WHEN drug_lower LIKE '%enalapril%' THEN 'RAASi'
+                    WHEN drug_lower LIKE '%ramipril%' THEN 'RAASi'
+                    WHEN drug_lower LIKE '%losartan%' THEN 'RAASi'
+                    WHEN drug_lower LIKE '%valsartan%' THEN 'RAASi'
+                    WHEN drug_lower LIKE '%irbesartan%' THEN 'RAASi'
+
+                    -- Potassium Sparing
+                    WHEN drug_lower LIKE '%spironolactone%' THEN 'K_SPARING'
+                    WHEN drug_lower LIKE '%eplerenone%' THEN 'K_SPARING'
+                    WHEN drug_lower LIKE '%amiloride%' THEN 'K_SPARING'
+                    WHEN drug_lower LIKE '%triamterene%' THEN 'K_SPARING'
+
+                    -- Heparin
+                    WHEN drug_lower LIKE '%heparin%' THEN 'HEPARIN'
+                    WHEN drug_lower LIKE '%enoxaparin%' THEN 'HEPARIN'
+
+                    -- NSAID
+                    WHEN drug_lower LIKE '%ibuprofen%' THEN 'NSAID'
+                    WHEN drug_lower LIKE '%ketorolac%' THEN 'NSAID'
+
+                    -- Loop Diuretics
+                    WHEN drug_lower LIKE '%furosemide%' THEN 'LOOP'
+                    WHEN drug_lower LIKE '%lasix%' THEN 'LOOP'
+                    WHEN drug_lower LIKE '%bumetanide%' THEN 'LOOP'
+                    WHEN drug_lower LIKE '%bumex%' THEN 'LOOP'
+                    WHEN drug_lower LIKE '%torsemide%' THEN 'LOOP'
+
+                    -- Thiazide
+                    WHEN drug_lower LIKE '%hydrochlorothiazide%' THEN 'THIAZIDE'
+                    WHEN drug_lower LIKE '%chlorthalidone%' THEN 'THIAZIDE'
+                    WHEN drug_lower LIKE '%metolazone%' THEN 'THIAZIDE'
+
+                    -- Osmotic
+                    WHEN drug_lower LIKE '%mannitol%' THEN 'OSMOTIC'
+                    WHEN drug_lower LIKE '%tacrolimus%' THEN 'CNI'
+					WHEN drug_lower LIKE '%cyclosporine%' THEN 'CNI'
+					WHEN drug_lower LIKE '%digoxin%' THEN 'DIGOXIN'
+					WHEN drug_lower LIKE '%bicarbonate%' THEN 'BICARBONATE'
+					WHEN drug_lower LIKE '%sodium bicarbonate%' THEN 'BICARBONATE'
+                    WHEN drug_lower LIKE '%regular%' THEN 'INSULIN_REGULAR'
+                    WHEN drug_lower LIKE '%lispro%' THEN 'INSULIN_RAPID'
+                    WHEN drug_lower LIKE '%aspart%' THEN 'INSULIN_RAPID'
+                    WHEN drug_lower LIKE '%glargine%' THEN 'INSULIN_LONG'
+                    WHEN drug_lower LIKE '%detemir%' THEN 'INSULIN_LONG'
+                    WHEN drug_lower LIKE '%trimethoprim%' THEN 'TMP'
+                    WHEN drug_lower LIKE '%bactrim%' THEN 'TMP'
+                    WHEN drug_lower LIKE '%septra%' THEN 'TMP'
+                    WHEN drug_lower LIKE '%sulfamethoxazole%' THEN 'TMP'
+
+                END AS drug,
+
+                1 AS valuenum,b.potassium as hk
+
+            FROM (
+
+                SELECT
+                    a.*,
+                    LOWER(a.drug) AS drug_lower
+                FROM prescriptions a
+
+            ) a
+
+            INNER JOIN z_k_adm b
+                ON (
+                    b.subject_id = a.subject_id
+                    AND b.hadm_id = a.hadm_id
+                )
+
+            where a.starttime is not NULL
+                and drug_lower REGEXP
+                'lisinopril|enalapril|ramipril|losartan|valsartan|irbesartan|
+                spironolactone|eplerenone|amiloride|triamterene|
+                heparin|enoxaparin|
+                ibuprofen|ketorolac|
+                furosemide|lasix|bumetanide|bumex|torsemide|
+                hydrochlorothiazide|chlorthalidone|metolazone|
+                mannitol|tacrolimus|cyclosporine|digoxin|bicarbonate|sodium bicarbonate|insulin
+                |trimethoprim|bactrim|septra|sulfamethoxazole
+                '
+                        
+            """
             connection.execute(text(SQL))
             connection.commit()
              
@@ -1051,14 +1291,19 @@ def TO_CSV():#轉檔
 
             SQL = f"""
             
-            select hadm_id  "stay_id", charttime, UPPER(lab_name)  as  "label",valuenum from z_k_lab zkl 
+            select hadm_id  "stay_id", charttime, UPPER(lab_name)  as  "label",valuenum ,hk
+            
+            from z_k_lab zkl 
             """
             df = pd.read_sql(text(SQL), connection)
             df.to_csv(f"POTA_TRAN_DATA20260429/fetch_labevents.csv", index=False)
             print("fetch_labevents_ 轉CSV完成")
 
             SQL = f"""
-            select hadm_id  "stay_id", starttime , drug as  "label", CAST(valuenum AS CHAR) as "valuenum" from z_k_drug zkd  
+            select hadm_id  "stay_id", starttime , drug as  "label"
+            , CAST(valuenum AS CHAR) as "valuenum" ,hk 
+          
+            from z_k_drug zkd  
             """
             df = pd.read_sql(text(SQL), connection)
             df.to_csv(f"POTA_TRAN_DATA20260429/高血鉀用藥.csv", index=False)
@@ -1077,11 +1322,24 @@ def TO_CSV():#轉檔
                 a.charttime,
                 'URINE_OUTPUT' AS label,
                 a.value AS valuenum
+                 ,( SELECT potassium FROM z_k_adm  where z_k_adm.hadm_id = a.hadm_id
+                LIMIT 1
+                
+                )AS hk 
             FROM outputevents a
             JOIN z_k_adm b
             ON a.hadm_id  = b.hadm_id
-            WHERE 
-            a.charttime >= b.admittime + INTERVAL 24 HOUR
+            WHERE  itemid IN (
+                226559, -- Foley
+                226560, -- Void
+                226561, -- Condom Cath
+                226584, -- Ileoconduit
+                226563, -- Suprapubic
+                226564, -- R Nephrostomy
+                226565, -- L Nephrostomy
+                226567  -- Straight Cath
+            )
+            AND a.charttime >= b.admittime + INTERVAL 24 HOUR
             AND a.charttime <  b.dischtime + INTERVAL 48 HOUR
 
             AND a.value IS NOT NULL
@@ -1099,99 +1357,208 @@ def TO_CSV():#轉檔
     except Exception as Error:
         print("CSV_TO_DB 錯誤!!!!!!! \n"+str(Error))
 
-def TO_CSV2():#轉檔
-    try:
+# def TO_CSV2():#轉檔
+#     try:
      
-        with ENG.connect() as connection: 
-            SQL = f"""
-            select distinct subject_id , stay_id 
-            , admittime "t0",dischtime  "t_end"
-            ,potassium  "y_hk" from z_k_adm zka 
-            """
-            df = pd.read_sql(text(SQL), connection)
-            df.to_csv(f"POTA_TRAN_DATA20260429/adm.csv", index=False)
-            print("adm 轉CSV完成")
+#         with ENG.connect() as connection: 
+#             SQL = f"""
+#             select distinct subject_id , stay_id 
+#             , admittime "t0",dischtime  "t_end"
+#             ,potassium  "y_hk" from z_k_adm zka 
+#             """
+#             df = pd.read_sql(text(SQL), connection)
+#             df.to_csv(f"POTA_TRAN_DATA20260429/adm.csv", index=False)
+#             print("adm 轉CSV完成")
 
-            SQL = f"""
+#             SQL = f"""
             
             
-                select z_k_adm.stay_id , charttime, UPPER(lab_name)  as  "label",valuenum 
-                from z_k_lab zkl 
-                join z_k_adm on zkl.hadm_id =z_k_adm.hadm_id
-                and z_k_adm.stay_id is not NuLL
-            """
-            df = pd.read_sql(text(SQL), connection)
-            df.to_csv(f"POTA_TRAN_DATA20260429/fetch_labevents.csv", index=False)
-            print("fetch_labevents_ 轉CSV完成")
+#                 select z_k_adm.stay_id , charttime, UPPER(lab_name)  as  "label",valuenum 
+#                 from z_k_lab zkl 
+#                 join z_k_adm on zkl.hadm_id =z_k_adm.hadm_id
+#                 and z_k_adm.stay_id is not NuLL
+#             """
+#             df = pd.read_sql(text(SQL), connection)
+#             df.to_csv(f"POTA_TRAN_DATA20260429/fetch_labevents.csv", index=False)
+#             print("fetch_labevents_ 轉CSV完成")
 
-            SQL = f"""
-            select z_k_adm.stay_id, starttime , drug as  "label", CAST(valuenum AS CHAR) as "valuenum" 
+#             SQL = f"""
+#             select z_k_adm.stay_id, starttime , drug as  "label", CAST(valuenum AS CHAR) as "valuenum" 
             
-            from z_k_drug zkd  
-            join z_k_adm on zkd.hadm_id =z_k_adm.hadm_id
-                and z_k_adm.stay_id is not NuLL
+#             from z_k_drug zkd  
+#             join z_k_adm on zkd.hadm_id =z_k_adm.hadm_id
+#                 and z_k_adm.stay_id is not NuLL
 
 
-            """
-            df = pd.read_sql(text(SQL), connection)
-            df.to_csv(f"POTA_TRAN_DATA20260429/高血鉀用藥.csv", index=False)
-            print("高血鉀用藥 轉CSV完成")
-            SQL = f"""
-            select   hadm_id as "stay_id",
-            potassium  "y_hk" from z_k_adm zka 
-            """
-            df = pd.read_sql(text(SQL), connection)
-            df.to_csv(f"POTA_TRAN_DATA20260429/POTASSIUM.csv", index=False)
-            print("POTASSIUM     轉CSV完成")
+#             """
+#             df = pd.read_sql(text(SQL), connection)
+#             df.to_csv(f"POTA_TRAN_DATA20260429/高血鉀用藥.csv", index=False)
+#             print("高血鉀用藥 轉CSV完成")
+#             SQL = f"""
+#             select   hadm_id as "stay_id",
+#             potassium  "y_hk" from z_k_adm zka 
+#             """
+#             df = pd.read_sql(text(SQL), connection)
+#             df.to_csv(f"POTA_TRAN_DATA20260429/POTASSIUM.csv", index=False)
+#             print("POTASSIUM     轉CSV完成")
 
-            SQL = f"""
-           SELECT
-                a.hadm_id as stay_id,
-                a.charttime,
-                'URINE_OUTPUT' AS label,
-                a.value AS valuenum
-            FROM outputevents a
-            JOIN z_k_adm b
-            ON a.stay_id  = b.stay_id
-            WHERE 
-            -- a.charttime >= b.admittime + INTERVAL 24 HOUR
-           -- AND a.charttime <  b.dischtime + INTERVAL 48 HOUR
+#             SQL = f"""
+#            SELECT
+#                 a.hadm_id as stay_id,
+#                 a.charttime,
+#                 'URINE_OUTPUT' AS label,
+#                 a.value AS valuenum
+#             FROM outputevents a
+#             JOIN z_k_adm b
+#             ON a.stay_id  = b.stay_id
+#             WHERE 
+#             -- a.charttime >= b.admittime + INTERVAL 24 HOUR
+#            -- AND a.charttime <  b.dischtime + INTERVAL 48 HOUR
 
-            a.value IS NOT NULL
-            AND a.value > 0
-            """
-            df = pd.read_sql(text(SQL), connection)
-            df.to_csv(f"POTA_TRAN_DATA20260429/URINE.csv", index=False)
-            print("尿量     轉CSV完成")
+#             a.value IS NOT NULL
+#             AND a.value > 0
+#             """
+#             df = pd.read_sql(text(SQL), connection)
+#             df.to_csv(f"POTA_TRAN_DATA20260429/URINE.csv", index=False)
+#             print("尿量     轉CSV完成")
 
 
 
 
 
               
-        print("轉檔完成")
-        return 0
-    except Exception as Error:
-        print("CSV_TO_DB 錯誤!!!!!!! \n"+str(Error))
+#         print("轉檔完成")
+#         return 0
+#     except Exception as Error:
+#         print("CSV_TO_DB 錯誤!!!!!!! \n"+str(Error))
 
+def median_iqr(x):
+    q1 = x.quantile(0.25)
+    q3 = x.quantile(0.75)
+    return f"{x.median():.2f} ({q1:.2f}, {q3:.2f})"
+
+
+def calc_lab_pvalues2(CSV):
+
+    results = []
+
+    df = pd.read_csv(CSV)
+
+    df["valuenum"] = pd.to_numeric(df["valuenum"], errors="coerce")
+    df["hk"] = pd.to_numeric(df["hk"], errors="coerce")
+
+    for lab in df["label"].dropna().unique():
+
+        sub = df[df["label"] == lab]
+
+        hk_group = sub[sub["hk"] == 1]["valuenum"].dropna()
+        nonhk_group = sub[sub["hk"] == 0]["valuenum"].dropna()
+
+        if len(hk_group) < 2 or len(nonhk_group) < 2:
+            continue
+        #Wilcoxon rank-sum test
+        stat, p_value = mannwhitneyu(
+            hk_group,
+            nonhk_group,
+            alternative="two-sided"
+        )
+
+        hk_text = median_iqr(hk_group)
+        nonhk_text = median_iqr(nonhk_group)
+
+        if p_value < 0.001:
+            p_fmt = "<0.001"
+        else:
+            p_fmt = f"{p_value:.3f}"
+
+        results.append({
+            "項目": lab,
+            "高血鉀": hk_text,
+            "非高血鉀": nonhk_text,
+            "p-value": p_fmt
+        })
+
+    table1 = pd.DataFrame(results)
+
+    with pd.ExcelWriter(
+        "hyperkalemia_table1.xlsx",
+        engine="openpyxl"
+    ) as writer:
+        table1.to_excel(
+            writer,
+            sheet_name="Table1",
+            index=False
+        )
+
+    print(table1)
+
+    return table1
+def calc_drug_pvalues():
+
+    results = []
+    df = pd.read_csv("POTA_TRAN_DATA20260429/高血鉀用藥.csv")
+
+    for drug in df["label"].dropna().unique():
+
+        sub = df[df["label"] == drug]
+
+        # contingency table
+        table = pd.crosstab(
+            sub["label"],
+            sub["hk"]
+        )
+
+        # 至少兩組
+        if table.shape[1] < 2:
+            continue
+
+        chi2, p_value, dof, expected = chi2_contingency(table)
+
+        hk_n = (sub["hk"] == 1).sum()
+        nonhk_n = (sub["hk"] == 0).sum()
+
+        total = len(sub)
+
+        hk_pct = hk_n / total * 100
+        nonhk_pct = nonhk_n / total * 100
+
+        if p_value < 0.001:
+            p_fmt = "<0.001"
+        else:
+            p_fmt = f"{p_value:.3f}"
+
+        results.append({
+            "藥物": drug,
+            "高血鉀": f"{hk_n} ({hk_pct:.1f}%)",
+            "非高血鉀": f"{nonhk_n} ({nonhk_pct:.1f}%)",
+            "p-value": p_fmt
+        })
+    table1 = pd.DataFrame(results)
+
+    with pd.ExcelWriter(
+        "hyperkalemia_drug_table1.xlsx",
+        engine="openpyxl"
+    ) as writer:
+        table1.to_excel(
+            writer,
+            sheet_name="Table1",
+            index=False
+        )
+
+    return pd.DataFrame(results)
 if __name__ == "__main__":
-    
-    
-    adm_k3()
-    adm_k_drug()
+    calc_lab_pvalues2("POTA_TRAN_DATA20260429/fetch_labevents.csv")
+    #calc_lab_pvalues2("POTA_TRAN_DATA20260429/URINE.csv")
    
-    CKD_LAB()
+    #calc_drug_pvalues()
+    
+    
+    #adm_k3()
+    #adm_k_drug()
+   
+    #CKD_LAB()
     #CKD_TO_STAT_EXCEL()
-    TO_CSV()
+    #TO_CSV()
 
-SQL = """ 
-UPDATE labevents
-SET lab_name = (
-    SELECT label 
-    FROM d_labitems 
-    WHERE d_labitems.itemid = labevents.itemid
-)
-WHERE lab_name IS NULL
-ORDER BY row_id
-LIMIT 2000000;
-"""
+
+

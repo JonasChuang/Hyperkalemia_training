@@ -64,6 +64,7 @@ FEATURE_MAP = {
     'CALCULATED TOTAL CO2':'hco3',
     'CALCIUM, TOTAL':'calcium_total',
     'BICARBONATE':'hco3',
+    'MDRD_EGFR':'mdrd_egfr',
 
     # ===== Metabolic =====
     'GLUCOSE':'glucose',
@@ -101,7 +102,17 @@ FEATURE_MAP = {
     'NSAID':'drug_nsaid',
     'HEPARIN':'drug_heparin',
     'LOOP':'drug_loop',
-    'THIAZIDE':'drug_thiazide'
+    'THIAZIDE':'drug_thiazide',
+    'OSMOTIC':'drug_osmotic',
+    'CNI':'drug_cni',
+    'DIGOXIN':'drug_digoxin',
+    'BICARBONATE':'drug_bicarbonate',
+    'INSULIN_REGULAR':'drug_insulin_regular',
+    'INSULIN_RAPID':'drug_insulin_rapid',
+    'INSULIN_LONG':'drug_insulin_long',
+    'TMP':'drug_tmp',
+    
+   
 }
 
 

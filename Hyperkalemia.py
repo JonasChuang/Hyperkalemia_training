@@ -10,6 +10,7 @@ MIMIC-IV｜0–24h 每小時序列（排除 K）→ GRU → 預測 24–48h 高�
 - 指標：AUC, AUPRC, F1@PR最佳閾值, Brier
 輸出：./artifacts_hk_seq/ 下存模型與指標
 """
+import matplotlib.pyplot as plt
 from utility import (FEATURE_MAP, to_hourly, to_hourly_drug,SEQ_HOURS,LBL_FROM,LBL_TO,K_CUTOFF,RANDOM_STATE
                      ,xgb_feature_importance,rfecv_feature_selection,boruta_feature_selection,xgb_feature_importance2)
 
@@ -24,6 +25,7 @@ from plt_shap import  eval_block, plot_eval_radar,plot_eval_metrics,bootstrap_PL
 from sklearn.linear_model import LogisticRegression
 from xgboost import XGBClassifier
 from sklearn.calibration import CalibratedClassifierCV,calibration_curve
+import statsmodels.api as sm
 #from tool import sqlalchmy_raw_sql
 
 OUTDIR = os.getenv("OUTDIR", "./artifacts_hk_seq")
@@ -329,8 +331,76 @@ def run_logistic_regression_latest(Xtr, Xva, Xte, ytr, yva, yte):
 
     val_metrics = eval_block(yva, va_prob, "VAL_LR_LATEST")
     test_metrics = eval_block(yte, te_prob, "TEST_LR_LATEST")
+   
 
     return val_metrics, test_metrics, va_prob, te_prob
+def logistic_odds_ratios(Xtr, ytr, feat_cols):
+    try:
+        """
+        使用最後一個 time step 計算 Logistic Regression Odds Ratio
+
+        Parameters
+        ----------
+        Xtr : np.ndarray
+            shape = (N, T, F)
+
+        ytr : np.ndarray
+            shape = (N,)
+
+        feat_cols : list
+            特徵名稱
+
+        Returns
+        -------
+        or_df : pd.DataFrame
+            Odds Ratio table
+        """
+
+        import pandas as pd
+        import numpy as np
+        import statsmodels.api as sm
+
+        # ===== 只取最後一個時間點 =====
+        Xtr_lr = Xtr[:, -1, :]   # (N, F)
+
+        # ===== 建 DataFrame =====
+        X_df = pd.DataFrame(Xtr_lr, columns=feat_cols)
+
+        # ===== 移除常數欄位 =====
+        nunique = X_df.nunique()
+        X_df = X_df.loc[:, nunique > 1]
+
+        # ===== 加 intercept =====
+        X_df = sm.add_constant(X_df)
+
+        # ===== Logistic Regression =====
+        model = sm.Logit(ytr, X_df)
+
+        result = model.fit()
+
+        print(result.summary())
+
+        # ===== Odds Ratio =====
+        params = result.params
+        conf = result.conf_int()
+
+        or_df = pd.DataFrame({
+            "Feature": params.index,
+            "coef": params.values,
+            "OR": np.exp(params.values),
+            "CI_low": np.exp(conf[0].values),
+            "CI_high": np.exp(conf[1].values),
+            "p_value": result.pvalues.values
+        })
+
+        # ===== 排序 =====
+        or_df = or_df.sort_values("OR", ascending=False)
+
+        print("\n===== Odds Ratio =====")
+        print(or_df)
+    except Exception as e:
+        print("計算勝算比時出錯:", e)
+
 
 def run_xgboost(Xtr, Xva, Xte, ytr, yva, yte):
     """
@@ -371,6 +441,71 @@ def run_xgboost(Xtr, Xva, Xte, ytr, yva, yte):
     test_metrics = eval_block(yte, te_prob, "TEST_XGB")
 
     return val_metrics, test_metrics, va_prob, te_prob, xgb
+
+
+def plot_eval_compare(val_res, test_res):
+    """
+    Validation vs Test metrics comparison
+    """
+
+    metrics = ["AUC", "AUPRC", "F1", "Brier"]
+
+    val_values = [val_res[m] for m in metrics]
+    test_values = [test_res[m] for m in metrics]
+
+    x = np.arange(len(metrics))
+    width = 0.35
+
+    plt.figure(figsize=(8,5))
+
+    bars1 = plt.bar(
+        x - width/2,
+        val_values,
+        width,
+        label="Validation"
+    )
+
+    bars2 = plt.bar(
+        x + width/2,
+        test_values,
+        width,
+        label="Test"
+    )
+
+    plt.xticks(x, metrics)
+
+    plt.ylabel("Score")
+
+    plt.ylim(0, 1)
+
+    plt.title(
+        f"Model Performance Comparison\n"
+        f"VAL thr={val_res['threshold']:.3f} | "
+        f"TEST thr={test_res['threshold']:.3f}"
+    )
+
+    plt.legend()
+
+    # 數值標籤
+    for bars in [bars1, bars2]:
+
+        for bar in bars:
+
+            h = bar.get_height()
+
+            plt.text(
+                bar.get_x() + bar.get_width()/2,
+                h + 0.01,
+                f"{h:.3f}",
+                ha="center",
+                va="bottom",
+                fontsize=9
+            )
+
+    plt.tight_layout()
+
+    plt.show()
+
 
 def main(flg):
     os.makedirs(OUTDIR, exist_ok=True)
@@ -439,8 +574,8 @@ def main(flg):
 
     
     print("==> 訓練 GRU")
-    #model = build_gru((X.shape[1], X.shape[2]))
-    model = build_lstm((X.shape[1], X.shape[2]))
+    model = build_gru((X.shape[1], X.shape[2]))
+    #model = build_lstm((X.shape[1], X.shape[2]))
     # 類別權重（不平衡）
     pos = max(ytr.sum(), 1); neg = max(len(ytr)-pos, 1)
     cw = {0: 0.5*len(ytr)/neg, 1: 0.5*len(ytr)/pos}
@@ -474,8 +609,10 @@ def main(flg):
     print("==> 評估")
     val_metrics = eval_block(yva, va_prob, "VAL")
     test_metrics= eval_block(yte, te_prob, "TEST")# 真實標籤
-    plot_eval_metrics(val_metrics, tag="VAL")#驗證集
-    plot_eval_metrics(test_metrics, tag="TEST")#測試集
+
+    #plot_eval_metrics(val_metrics, tag="VAL")#驗證集
+    #plot_eval_metrics(test_metrics, tag="TEST")#測試集
+    plot_eval_compare(val_metrics, test_metrics)
 
     #plot_eval_radar([val_metrics, test_metrics], ["VAL","TEST"])
     print("==> Logistic Regression baseline")
@@ -499,6 +636,7 @@ def main(flg):
         [val_metrics, test_metrics, val_lr, test_lr, val_lr_latest, test_lr_latest],
         ["VAL_GRU", "TEST_GRU", "VAL_LR", "TEST_LR", "VAL_LR_LATEST", "TEST_LR_LATEST"]
     )
+    #logistic_odds_ratios(Xtr, ytr, feat_cols)#勝算比
         
 
     Xtr_xgb = Xtr.reshape(Xtr.shape[0], -1)
@@ -556,8 +694,8 @@ def main(flg):
 
 if __name__ == "__main__":
    
-    main("POTA_TRAN_DATA20260429")#POTA_20251016、SODIUM_20251016
-    #xgb_feature_importance2("POTA_TRAN_DATA20260429/fetch_labevents.csv", "POTASSIUM")
+    #main("POTA_TRAN_DATA20260429")#POTA_20251016、SODIUM_20251016
+    xgb_feature_importance2("POTA_TRAN_DATA20260429/fetch_labevents.csv", "POTASSIUM")
     #rfecv_feature_selection("POTA_TRAN_DATA20260429/fetch_labevents.csv", "POTASSIUM")
     #boruta_feature_selection("POTA_TRAN_DATA20260429/fetch_labevents.csv", "POTASSIUM")
     
