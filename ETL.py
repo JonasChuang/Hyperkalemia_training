@@ -4,7 +4,7 @@ import pandas as pd
 from tqdm import tqdm
 from sqlalchemy import create_engine, text
 
-from scipy.stats import mannwhitneyu,chi2_contingency,ttest_ind
+from scipy.stats import mannwhitneyu,chi2_contingency,ttest_ind, fisher_exact
 
 #from main import ENG
 ENG = create_engine("mysql+pymysql://test:test@10.2.163.201:3306/mimic3_1")# 連接設定
@@ -143,7 +143,52 @@ def CKD_LAB():#轉檔
             connection.commit()
 
             SQL = f"""
+            -- 轉檔血壓
+            
+            INSERT INTO z_k_lab (
+                itemid,
+                lab_name,
+                valuenum,
+                subject_id,
+                hadm_id,
+                charttime,
+                fluid,
+                category,
+                hk
+            )
+            SELECT ce.itemid
+   
+                , (case when UPPER(di.label) like '%SYSTOLIC%' THEN'SYSTOLIC' -- 收縮
+                when UPPER(di.label) like '%DIASTOLIC%' THEN'DIASTOLIC'  -- 舒張
+                end)
+                AS label
+                
+                
+                ,valuenum,w.subject_id, ce.hadm_id,charttime
+                ,'' as fluid,'' as category
+                -- w.potassium as hk
+                , case when ce.charttime < w.hk_datetime then w.potassium else '0' end as hk
+              
+
+                    
+                FROM chartevents ce
+                JOIN d_items di ON di.itemid = ce.itemid
+                JOIN z_k_adm   w    ON w.hadm_id = ce.hadm_id
+                WHERE ce.valuenum IS NOT NULL
+                AND ce.charttime >= w.admittime + INTERVAL 24 HOUR
+                AND ce.charttime <  w.dischtime + INTERVAL 72 HOUR
+                AND UPPER(di.label) in('NON INVASIVE BLOOD PRESSURE SYSTOLIC','NON INVASIVE BLOOD PRESSURE DIASTOLIC')
+            ;
+            
+            """
+            connection.execute(text(SQL))
+            connection.commit()
+
+
+
+            SQL = f"""
             -- 轉檔EGFR
+
             INSERT INTO z_k_lab (
                 itemid,
                 lab_name,
@@ -154,7 +199,7 @@ def CKD_LAB():#轉檔
                 
                 
             )
-              
+              /*
                 SELECT 1 AS itemid,'MDRD_EGFR' AS lab_name
 
                 
@@ -184,46 +229,45 @@ def CKD_LAB():#轉檔
             AND a.valuenum IS NOT NULL
             AND a.valuenum > 0
             AND b.age_years IS NOT NULL
+              */
+              SELECT 
+                2 AS itemid,
+                'CKD_EPI_EGFR' AS lab_name,
 
-           /* UNION
+                ROUND(
+                    142 *
+                    POWER(
+                        a.valuenum / CASE WHEN b.gender = 'F' THEN 0.7 ELSE 0.9 END,
+                        CASE 
+                            WHEN b.gender = 'F' AND a.valuenum <= 0.7 THEN -0.241
+                            WHEN b.gender = 'F' AND a.valuenum >  0.7 THEN -1.200
+                            WHEN b.gender <> 'F' AND a.valuenum <= 0.9 THEN -0.302
+                            ELSE -1.200
+                        END
+                    ) *
+                    POWER(0.9938, b.age_years) *
+                    CASE WHEN b.gender = 'F' THEN 1.012 ELSE 1 END
+                , 2) AS valuenum,
 
-            SELECT itemid,'EPI_EGFR' AS lab_name
                 a.subject_id,
                 a.hadm_id,
                 a.charttime,
-                a.valuenum AS creatinine,
-                b.gender,
-                b.age_years,
 
-                ROUND(
-                    142
-                    * POW(LEAST(a.valuenum / 
-                        CASE WHEN b.gender = 'F' THEN 0.7 ELSE 0.9 END, 1),
-                        CASE WHEN b.gender = 'F' THEN -0.241 ELSE -0.302 END)
-                    * POW(GREATEST(a.valuenum / 
-                        CASE WHEN b.gender = 'F' THEN 0.7 ELSE 0.9 END, 1), -1.200)
-                    * POW(0.9938, b.age_years)
-                    * CASE WHEN b.gender = 'F' THEN 1.012 ELSE 1 END
-                , 2) AS epi_egfr
-                , ROUND(
-                    175 *
-                    POW(a.valuenum, -1.154) *
-                    POW(b.age_years, -0.203) *
-                    CASE 
-                        WHEN b.gender = 'F' THEN 0.742
-                        ELSE 1
-                    END
-                ,2) AS mdrd_egfr
+                CASE 
+                    WHEN a.charttime < b.hk_datetime THEN b.potassium 
+                    ELSE 0 
+                END AS hk
 
-            FROM z_k_lab  a
-            JOIN z_k_adm  b  ON (a.subject_id = b.subject_id and a.hadm_id = b.hadm_id )
-            
+            FROM z_k_lab a
+            JOIN z_k_adm b 
+                ON a.subject_id = b.subject_id 
+            AND a.hadm_id = b.hadm_id
 
-            WHERE a.itemid = 50912
+            WHERE a.itemid = 50912       -- Creatinine
             AND a.valuenum IS NOT NULL
             AND a.valuenum > 0
-            AND b.age_years IS NOT NULL
-            */
+            AND b.age_years IS NOT NULL;
+           
 
             """
             connection.execute(text(SQL))
@@ -1101,6 +1145,7 @@ def adm_k3():#轉檔
                         select * from z_k_adm  where z_k_adm.subject_id = a.subject_id and z_k_adm.hadm_id =a.hadm_id
                         
                         )
+                        
             
             """
             connection.execute(text(SQL))
@@ -1276,17 +1321,17 @@ def adm_k_drug():#轉檔
     except Exception as Error:
         print("CSV_TO_DB 錯誤!!!!!!! \n"+str(Error))
 
-def TO_CSV():#轉檔
+def TO_CSV(TRAN_FOLDER):#轉檔
     try:
      
         with ENG.connect() as connection: 
             SQL = f"""
             select subject_id , hadm_id as "stay_id"
             , admittime "t0",dischtime  "t_end"
-            ,potassium  "y_hk" , age_years as "age" from z_k_adm zka 
+            ,potassium  "y_hk" , age_years as "age",gender from z_k_adm zka 
             """
             df = pd.read_sql(text(SQL), connection)
-            df.to_csv(f"POTA_TRAN_DATA20260429/adm.csv", index=False)
+            df.to_csv(f"{TRAN_FOLDER}/adm.csv", index=False)
             print("adm 轉CSV完成")
 
             SQL = f"""
@@ -1296,7 +1341,7 @@ def TO_CSV():#轉檔
             from z_k_lab zkl 
             """
             df = pd.read_sql(text(SQL), connection)
-            df.to_csv(f"POTA_TRAN_DATA20260429/fetch_labevents.csv", index=False)
+            df.to_csv(f"{TRAN_FOLDER}/fetch_labevents.csv", index=False)
             print("fetch_labevents_ 轉CSV完成")
 
             SQL = f"""
@@ -1306,14 +1351,14 @@ def TO_CSV():#轉檔
             from z_k_drug zkd  
             """
             df = pd.read_sql(text(SQL), connection)
-            df.to_csv(f"POTA_TRAN_DATA20260429/高血鉀用藥.csv", index=False)
+            df.to_csv(f"{TRAN_FOLDER}/高血鉀用藥.csv", index=False)
             print("高血鉀用藥 轉CSV完成")
             SQL = f"""
             select   hadm_id as "stay_id",
             potassium  "y_hk" from z_k_adm zka 
             """
             df = pd.read_sql(text(SQL), connection)
-            df.to_csv(f"POTA_TRAN_DATA20260429/POTASSIUM.csv", index=False)
+            df.to_csv(f"{TRAN_FOLDER}/POTASSIUM.csv", index=False)
             print("POTASSIUM     轉CSV完成")
 
             SQL = f"""
@@ -1346,7 +1391,7 @@ def TO_CSV():#轉檔
             AND a.value > 0
             """
             df = pd.read_sql(text(SQL), connection)
-            df.to_csv(f"POTA_TRAN_DATA20260429/URINE.csv", index=False)
+            df.to_csv(f"{TRAN_FOLDER}/URINE.csv", index=False)
             print("尿量     轉CSV完成")
 
 
@@ -1356,81 +1401,6 @@ def TO_CSV():#轉檔
         return 0
     except Exception as Error:
         print("CSV_TO_DB 錯誤!!!!!!! \n"+str(Error))
-
-# def TO_CSV2():#轉檔
-#     try:
-     
-#         with ENG.connect() as connection: 
-#             SQL = f"""
-#             select distinct subject_id , stay_id 
-#             , admittime "t0",dischtime  "t_end"
-#             ,potassium  "y_hk" from z_k_adm zka 
-#             """
-#             df = pd.read_sql(text(SQL), connection)
-#             df.to_csv(f"POTA_TRAN_DATA20260429/adm.csv", index=False)
-#             print("adm 轉CSV完成")
-
-#             SQL = f"""
-            
-            
-#                 select z_k_adm.stay_id , charttime, UPPER(lab_name)  as  "label",valuenum 
-#                 from z_k_lab zkl 
-#                 join z_k_adm on zkl.hadm_id =z_k_adm.hadm_id
-#                 and z_k_adm.stay_id is not NuLL
-#             """
-#             df = pd.read_sql(text(SQL), connection)
-#             df.to_csv(f"POTA_TRAN_DATA20260429/fetch_labevents.csv", index=False)
-#             print("fetch_labevents_ 轉CSV完成")
-
-#             SQL = f"""
-#             select z_k_adm.stay_id, starttime , drug as  "label", CAST(valuenum AS CHAR) as "valuenum" 
-            
-#             from z_k_drug zkd  
-#             join z_k_adm on zkd.hadm_id =z_k_adm.hadm_id
-#                 and z_k_adm.stay_id is not NuLL
-
-
-#             """
-#             df = pd.read_sql(text(SQL), connection)
-#             df.to_csv(f"POTA_TRAN_DATA20260429/高血鉀用藥.csv", index=False)
-#             print("高血鉀用藥 轉CSV完成")
-#             SQL = f"""
-#             select   hadm_id as "stay_id",
-#             potassium  "y_hk" from z_k_adm zka 
-#             """
-#             df = pd.read_sql(text(SQL), connection)
-#             df.to_csv(f"POTA_TRAN_DATA20260429/POTASSIUM.csv", index=False)
-#             print("POTASSIUM     轉CSV完成")
-
-#             SQL = f"""
-#            SELECT
-#                 a.hadm_id as stay_id,
-#                 a.charttime,
-#                 'URINE_OUTPUT' AS label,
-#                 a.value AS valuenum
-#             FROM outputevents a
-#             JOIN z_k_adm b
-#             ON a.stay_id  = b.stay_id
-#             WHERE 
-#             -- a.charttime >= b.admittime + INTERVAL 24 HOUR
-#            -- AND a.charttime <  b.dischtime + INTERVAL 48 HOUR
-
-#             a.value IS NOT NULL
-#             AND a.value > 0
-#             """
-#             df = pd.read_sql(text(SQL), connection)
-#             df.to_csv(f"POTA_TRAN_DATA20260429/URINE.csv", index=False)
-#             print("尿量     轉CSV完成")
-
-
-
-
-
-              
-#         print("轉檔完成")
-#         return 0
-#     except Exception as Error:
-#         print("CSV_TO_DB 錯誤!!!!!!! \n"+str(Error))
 
 def median_iqr(x):
     q1 = x.quantile(0.25)
@@ -1546,11 +1516,212 @@ def calc_drug_pvalues():
         )
 
     return pd.DataFrame(results)
+
+def calc_age_gender_pvalues():
+
+    results = []
+    df = pd.read_csv("POTA_TRAN_DATA20260429/adm.csv")
+
+    # =========================
+    # 2. 建立高血鉀標籤
+    # =========================
+    # potassium > 5.5 視為高血鉀
+    hk_df = df[df["y_hk"] == 1]
+    nonhk_df = df[df["y_hk"] == 0]
+
+   # =========================
+    # 3. 年齡 P-value
+    # Mann-Whitney U test
+    # =========================
+    u_stat, age_p = mannwhitneyu(
+        hk_df["age"].dropna(),
+        nonhk_df["age"].dropna(),
+        alternative="two-sided"
+    )
+
+    print("==== 年齡分析 ====")
+
+    print(
+        f"高血鉀: "
+        f"{hk_df['age'].median():.2f} "
+        f"({hk_df['age'].quantile(0.25):.2f}, "
+        f"{hk_df['age'].quantile(0.75):.2f})"
+    )
+
+    print(
+        f"非高血鉀: "
+        f"{nonhk_df['age'].median():.2f} "
+        f"({nonhk_df['age'].quantile(0.25):.2f}, "
+        f"{nonhk_df['age'].quantile(0.75):.2f})"
+    )
+
+    print(f"P-value: {age_p:.6f}")
+
+    # =========================
+    # 4. 性別 P-value
+    # Chi-square test
+    # =========================
+    gender_table = pd.crosstab(df["gender"], df["y_hk"])
+
+    chi2, gender_p, dof, expected = chi2_contingency(gender_table)
+
+    print("\n==== 性別分析 ====")
+
+    print(gender_table)
+
+    print(f"P-value: {gender_p:.6f}")
+
+    # =========================
+    # 5. 輸出論文格式
+    # =========================
+    male_hk = (
+        (hk_df["gender"] == "M").sum() /
+        len(hk_df)
+    ) * 100
+
+    male_nonhk = (
+        (nonhk_df["gender"] == "M").sum() /
+        len(nonhk_df)
+    ) * 100
+
+    print("\n==== Table 1 ====")
+
+    print(
+        f"AGE\t"
+        f"{hk_df['age'].median():.2f} "
+        f"({hk_df['age'].quantile(0.25):.2f}, "
+        f"{hk_df['age'].quantile(0.75):.2f})\t"
+        f"{nonhk_df['age'].median():.2f} "
+        f"({nonhk_df['age'].quantile(0.25):.2f}, "
+        f"{nonhk_df['age'].quantile(0.75):.2f})\t"
+        f"{age_p:.3f}"
+    )
+
+    print(
+        f"Male (%)\t"
+        f"{male_hk:.2f}%\t"
+        f"{male_nonhk:.2f}%\t"
+        f"{gender_p:.3f}"
+    )
+
+    return 0
+
+def calc_drug_pvalues():
+    # =========================
+    # 1. 讀取 CSV
+    # =========================
+    df = pd.read_csv("POTA_TRAN_DATA20260429/高血鉀用藥.csv")
+
+    # =========================
+    # 2. 去除重複
+    # 同一 stay_id 同一藥物只算一次
+    # =========================
+    df2 = df.drop_duplicates(subset=["stay_id", "label"])
+
+    # =========================
+    # 3. 建立結果表
+    # =========================
+    results = []
+
+    drug_list = sorted(df2["label"].dropna().unique())
+
+    for drug in drug_list:
+
+        # 是否使用該藥物
+        tmp = df2.copy()
+
+        tmp["drug_use"] = (tmp["label"] == drug).astype(int)
+
+        # 每位病人是否使用過該藥物
+        patient_drug = (
+            tmp.groupby(["stay_id", "hk"])["drug_use"]
+            .max()
+            .reset_index()
+        )
+
+        # 建立列聯表
+        table = pd.crosstab(
+            patient_drug["drug_use"],
+            patient_drug["hk"]
+        )
+
+        # 避免缺欄位
+        table = table.reindex(
+            index=[0,1],
+            columns=[0,1],
+            fill_value=0
+        )
+
+        # =========================
+        # P-value
+        # 小樣本可改 Fisher
+        # =========================
+        try:
+            chi2, p, dof, expected = chi2_contingency(table)
+
+            # 若期望值太小，改用 Fisher
+            if (expected < 5).any():
+                _, p = fisher_exact(table)
+
+                test_name = "Fisher"
+
+            else:
+                test_name = "Chi-square"
+
+        except:
+            p = 1
+            test_name = "NA"
+
+        # =========================
+        # 統計比例
+        # =========================
+        hk_total = table[1].sum()
+        nonhk_total = table[0].sum()
+
+        hk_drug = table.loc[1,1]
+        nonhk_drug = table.loc[1,0]
+
+        hk_rate = (hk_drug / hk_total * 100) if hk_total > 0 else 0
+        nonhk_rate = (nonhk_drug / nonhk_total * 100) if nonhk_total > 0 else 0
+        #p_value = float(p)
+        p_text = "<0.001" if p < 0.001 else round(p, 3)
+        results.append({
+            "Drug": drug,
+            "HK n(%)": f"{hk_drug} ({hk_rate:.1f}%)",
+            "Non-HK n(%)": f"{nonhk_drug} ({nonhk_rate:.1f}%)",
+            "P-value":p_text,
+            "Test": test_name
+        })
+
+    # =========================
+    # 4. 輸出結果
+    # =========================
+    result_df = pd.DataFrame(results)
+
+    #result_df = result_df.sort_values("P-value")
+
+    print(result_df)
+    with pd.ExcelWriter(
+        "drug_pvaue.xlsx",
+        engine="openpyxl"
+    ) as writer:
+        result_df.to_excel(
+            writer,
+            sheet_name="Table1",
+            index=False
+        )
+
+
+    return 0
+
 if __name__ == "__main__":
-    calc_lab_pvalues2("POTA_TRAN_DATA20260429/fetch_labevents.csv")
+    TRAN_FOLDER="POTA_TRAN_DATA20260531"
+    #calc_drug_pvalues()
+    #calc_age_gender_pvalues()
+    calc_lab_pvalues2(f"{TRAN_FOLDER}/fetch_labevents.csv")
     #calc_lab_pvalues2("POTA_TRAN_DATA20260429/URINE.csv")
    
-    #calc_drug_pvalues()
+    #calc_drug_pvalues()#生成P值
     
     
     #adm_k3()
@@ -1558,7 +1729,7 @@ if __name__ == "__main__":
    
     #CKD_LAB()
     #CKD_TO_STAT_EXCEL()
-    #TO_CSV()
+    #TO_CSV(TRAN_FOLDER)
 
 
 

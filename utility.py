@@ -64,7 +64,8 @@ FEATURE_MAP = {
     'CALCULATED TOTAL CO2':'hco3',
     'CALCIUM, TOTAL':'calcium_total',
     'BICARBONATE':'hco3',
-    'MDRD_EGFR':'mdrd_egfr',
+    #'MDRD_EGFR':'mdrd_egfr',
+    'CKD_EPI_EGFR':'ckd_epi_egfr',
 
     # ===== Metabolic =====
     'GLUCOSE':'glucose',
@@ -111,6 +112,8 @@ FEATURE_MAP = {
     'INSULIN_RAPID':'drug_insulin_rapid',
     'INSULIN_LONG':'drug_insulin_long',
     'TMP':'drug_tmp',
+    'SYSTOLIC':'SYSTOLIC', #-- 收縮
+    'DIASTOLIC':'DIASTOLIC',#舒張
     
    
 }

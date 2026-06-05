@@ -29,7 +29,7 @@ def eval_block(y, p, tag):
     plt.plot([0,1],[0,1],'k--')  # 參考線
     plt.xlabel("False Positive Rate")
     plt.ylabel("True Positive Rate")
-    plt.title(f"ROC Curve - {tag}")
+    plt.title(f"AU-ROC - {tag}")
     plt.legend(loc="lower right")
     plt.grid(True)
     plt.show()

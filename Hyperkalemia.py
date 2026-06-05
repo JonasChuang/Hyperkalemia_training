@@ -694,7 +694,7 @@ def main(flg):
 
 if __name__ == "__main__":
    
-    #main("POTA_TRAN_DATA20260429")#POTA_20251016、SODIUM_20251016
+    main("POTA_TRAN_DATA20260531")#POTA_20251016、SODIUM_20251016
     xgb_feature_importance2("POTA_TRAN_DATA20260429/fetch_labevents.csv", "POTASSIUM")
     #rfecv_feature_selection("POTA_TRAN_DATA20260429/fetch_labevents.csv", "POTASSIUM")
     #boruta_feature_selection("POTA_TRAN_DATA20260429/fetch_labevents.csv", "POTASSIUM")
