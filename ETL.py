@@ -627,10 +627,39 @@ def adm_k():#轉檔
                                     and `diagnoses_icd`.`seq_num` 
                                      in (1, 2, 3, 4, 5,6,7,8,9,10)
                                     and    `diagnoses_icd`.`icd_version` = 10
+                                     AND (SUBSTRING(replace(`diagnoses_icd`.`icd_code`, '.', ''),1,4)) NOT in('N186','Z992','Z490','Z491','Z492','Z940','T861')
                                          
                                     and (SUBSTRING(replace(`diagnoses_icd`.`icd_code`, '.', ''),1,4)
-                                     in( 'E875','N181','N182','N183','N184','N185','N186','N189'  )
-                                         )              
+                                     in( 'N181','N182','N183','N184','N185','N186','N189'  )
+                                         )
+                                         AND (
+                   
+                   replace(`diagnoses_icd`.`icd_code`, '.', '') like'N17%'
+                  OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'N18.1%'
+                   OR  replace(`diagnoses_icd`.`icd_code`, '.', '') like'N18.2%'
+                   OR  replace(`diagnoses_icd`.`icd_code`, '.', '') like'N18.30%'
+                   OR  replace(`diagnoses_icd`.`icd_code`, '.', '') like'N18.31%'
+                   OR  replace(`diagnoses_icd`.`icd_code`, '.', '') like'N18.31%'
+                   OR  replace(`diagnoses_icd`.`icd_code`, '.', '') like'N18.4%'
+                    OR  replace(`diagnoses_icd`.`icd_code`, '.', '') like'N18.5%'
+                     OR  replace(`diagnoses_icd`.`icd_code`, '.', '') like'N18.6%'
+                      OR  replace(`diagnoses_icd`.`icd_code`, '.', '') like'N18.9%'
+                   OR  replace(`diagnoses_icd`.`icd_code`, '.', '') like'E10%'
+                    OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'E11%'
+                    OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'E13%'
+                    OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'N17%'
+                    OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'I10%'
+                    OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'I12%'
+                    OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'I13%'
+                    OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'I50%'
+                    OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'I25%'
+                    OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'E87.2%'
+                     OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'A40%'
+                     OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'A41%'
+                    OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'M62.82%'
+                     OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'E27.1%'
+                     OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'E27.4%'
+                               )              
                                
                  )
              and patients.anchor_age >=18
@@ -815,7 +844,7 @@ def adm_k3():#轉檔
 
                 INSERT INTO mimic3_1.z_k_adm
                 (subject_id, hadm_id, admittime, dischtime,deathtime, admission_type, admit_provider_id, admission_location
-                , insurance, marital_status, race, edregtime, edouttime, hospital_expire_flag, icd_1, icd_2, icd_3
+                , insurance, marital_status, race, edregtime, edouttime, hospital_expire_flag
             , age_years, gender,  potassium,hk_datetime, body_weight,body_height)
                
            
@@ -836,48 +865,7 @@ def adm_k3():#轉檔
             `a`.`edregtime` as `edregtime`,
             `a`.`edouttime` as `edouttime`,
             `a`.`hospital_expire_flag` as `hospital_expire_flag`,
-            (
-            select
-                (case
-                    when regexp_like(`diagnoses_icd`.`icd_code`, '^250|^E10|^E11|^E13') then 'Diabetes'
-                    when regexp_like(`diagnoses_icd`.`icd_code`, '^401|^405|^I10|^I15|^410|^411|^414|^428|^4292|^440|^4439|^I21|^I25|^I50|^I70') then 'Cardiovascular'
-                    when regexp_like(`diagnoses_icd`.`icd_code`, '^2777|^272|^E88.81|^E78|^278|^E66') then 'Metabolic'
-                    else `diagnoses_icd`.`icd_code`
-                end)
-            from
-                `diagnoses_icd`
-            where
-                ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
-                    and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
-                        and (`diagnoses_icd`.`seq_num` = 1))) as `ICD_1`,
-            (
-            select
-                (case
-                    when regexp_like(`diagnoses_icd`.`icd_code`, '^250|^E10|^E11|^E13') then 'Diabetes'
-                    when regexp_like(`diagnoses_icd`.`icd_code`, '^401|^405|^I10|^I15|^410|^411|^414|^428|^4292|^440|^4439|^I21|^I25|^I50|^I70') then 'Cardiovascular'
-                    when regexp_like(`diagnoses_icd`.`icd_code`, '^2777|^272|^E88.81|^E78|^278|^E66') then 'Metabolic'
-                    else `diagnoses_icd`.`icd_code`
-                end)
-            from
-                `diagnoses_icd`
-            where
-                ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
-                    and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
-                        and (`diagnoses_icd`.`seq_num` = 2))) as `ICD_2`,
-            (
-            select
-                (case
-                    when regexp_like(`diagnoses_icd`.`icd_code`, '^250|^E10|^E11|^E13') then 'Diabetes'
-                    when regexp_like(`diagnoses_icd`.`icd_code`, '^401|^405|^I10|^I15|^410|^411|^414|^428|^4292|^440|^4439|^I21|^I25|^I50|^I70') then 'Cardiovascular'
-                    when regexp_like(`diagnoses_icd`.`icd_code`, '^2777|^272|^E88.81|^E78|^278|^E66') then 'Metabolic'
-                    else `diagnoses_icd`.`icd_code`
-                end)
-            from
-                `diagnoses_icd`
-            where
-                ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
-                    and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
-                        and (`diagnoses_icd`.`seq_num` = 3))) as `ICD_3`,
+            
             ((`patients`.`anchor_age` + year(`a`.`admittime`)) - `patients`.`anchor_year`) as `age_years`,
             `patients`.`gender` as `gender`,
             
@@ -953,8 +941,21 @@ def adm_k3():#轉檔
                 ((`patients`.`subject_id` = `a`.`subject_id` AND`patients`.`anchor_year_group` in ('2020 - 2022', '2017 - 2019') ))
               --   ((`patients`.`subject_id` = `a`.`subject_id` AND`patients`.`anchor_year_group` in ('2020 - 2022') ))
             where 
+            exists(
+                         select  1 from `diagnoses_icd` where `diagnoses_icd`.`subject_id` = `a`.`subject_id`
+                              
+                                    and `diagnoses_icd`.`hadm_id` = `a`.`hadm_id`
+                                    and `diagnoses_icd`.`seq_num` 
+                                     in (1, 2, 3, 4, 5,6,7,8,9,10)
+                                    and    `diagnoses_icd`.`icd_version` = 10
+                                     AND (SUBSTRING(replace(`diagnoses_icd`.`icd_code`, '.', ''),1,4)) NOT in('N186','Z992','Z490','Z491','Z492','Z940','T861')
+                                         
+                                   
+                 )
 
-              patients.anchor_age >=18
+
+
+             AND patients.anchor_age >=18
             AND exists (
              
               select     1  from `labevents` `lab`
@@ -988,12 +989,12 @@ def adm_k3():#轉檔
                     
             
             """
-            connection.execute(text(SQL))
-            connection.commit()
+            #connection.execute(text(SQL))
+            #connection.commit()
             SQL=f"""
             INSERT INTO mimic3_1.z_k_adm
                 (subject_id, hadm_id, admittime, dischtime,deathtime, admission_type, admit_provider_id, admission_location
-                , insurance, marital_status, race, edregtime, edouttime, hospital_expire_flag, icd_1, icd_2, icd_3
+                , insurance, marital_status, race, edregtime, edouttime, hospital_expire_flag
             , age_years, gender,  potassium, body_weight,body_height)
             select
                         `a`.`subject_id` as `subject_id`,
@@ -1012,48 +1013,7 @@ def adm_k3():#轉檔
                         `a`.`edregtime` as `edregtime`,
                         `a`.`edouttime` as `edouttime`,
                         `a`.`hospital_expire_flag` as `hospital_expire_flag`,
-                        (
-                        select
-                            (case
-                                when regexp_like(`diagnoses_icd`.`icd_code`, '^250|^E10|^E11|^E13') then 'Diabetes'
-                                when regexp_like(`diagnoses_icd`.`icd_code`, '^401|^405|^I10|^I15|^410|^411|^414|^428|^4292|^440|^4439|^I21|^I25|^I50|^I70') then 'Cardiovascular'
-                                when regexp_like(`diagnoses_icd`.`icd_code`, '^2777|^272|^E88.81|^E78|^278|^E66') then 'Metabolic'
-                                else `diagnoses_icd`.`icd_code`
-                            end)
-                        from
-                            `diagnoses_icd`
-                        where
-                            ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
-                                and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
-                                    and (`diagnoses_icd`.`seq_num` = 1))) as `ICD_1`,
-                        (
-                        select
-                            (case
-                                when regexp_like(`diagnoses_icd`.`icd_code`, '^250|^E10|^E11|^E13') then 'Diabetes'
-                                when regexp_like(`diagnoses_icd`.`icd_code`, '^401|^405|^I10|^I15|^410|^411|^414|^428|^4292|^440|^4439|^I21|^I25|^I50|^I70') then 'Cardiovascular'
-                                when regexp_like(`diagnoses_icd`.`icd_code`, '^2777|^272|^E88.81|^E78|^278|^E66') then 'Metabolic'
-                                else `diagnoses_icd`.`icd_code`
-                            end)
-                        from
-                            `diagnoses_icd`
-                        where
-                            ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
-                                and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
-                                    and (`diagnoses_icd`.`seq_num` = 2))) as `ICD_2`,
-                        (
-                        select
-                            (case
-                                when regexp_like(`diagnoses_icd`.`icd_code`, '^250|^E10|^E11|^E13') then 'Diabetes'
-                                when regexp_like(`diagnoses_icd`.`icd_code`, '^401|^405|^I10|^I15|^410|^411|^414|^428|^4292|^440|^4439|^I21|^I25|^I50|^I70') then 'Cardiovascular'
-                                when regexp_like(`diagnoses_icd`.`icd_code`, '^2777|^272|^E88.81|^E78|^278|^E66') then 'Metabolic'
-                                else `diagnoses_icd`.`icd_code`
-                            end)
-                        from
-                            `diagnoses_icd`
-                        where
-                            ((`diagnoses_icd`.`subject_id` = `a`.`subject_id`)
-                                and (`diagnoses_icd`.`hadm_id` = `a`.`hadm_id`)
-                                    and (`diagnoses_icd`.`seq_num` = 3))) as `ICD_3`,
+                       
                         ((`patients`.`anchor_age` + year(`a`.`admittime`)) - `patients`.`anchor_year`) as `age_years`,
                         `patients`.`gender` as `gender`,
                         
@@ -1106,24 +1066,52 @@ def adm_k3():#轉檔
                                 
                         from
                             `admissions` `a`
-                        join `patients` on
-                          ((`patients`.`subject_id` = `a`.`subject_id` AND`patients`.`anchor_year_group` in ('2020 - 2022', '2017 - 2019') ))
+                        join `patients` on ((`patients`.`subject_id` = `a`.`subject_id` AND`patients`.`anchor_year_group` in ('2020 - 2022') ))
+                         inner join icustays on( icustays.hadm_id =a.hadm_id  )
+                         
                         --    ((`patients`.`subject_id` = `a`.`subject_id` AND`patients`.`anchor_year_group` in ('2020 - 2022') ))
                         where 
 
                         exists(
-                                    select  1 from `diagnoses_icd` where `diagnoses_icd`.`subject_id` = `a`.`subject_id`
-                                        
-                                                and `diagnoses_icd`.`hadm_id` = `a`.`hadm_id`
-                                                and `diagnoses_icd`.`seq_num` 
-                                                in (1, 2, 3, 4, 5)
-                                                and    `diagnoses_icd`.`icd_version` = 10
-                                                    
-                                                and (SUBSTRING(replace(`diagnoses_icd`.`icd_code`, '.', ''),1,4)
-                                                in( 'E875','N181','N182','N183','N184','N185','N186','N189'  )
-                                                    )              
-                                        
-                            )
+                         select  1 from `diagnoses_icd` where `diagnoses_icd`.`subject_id` = `a`.`subject_id`
+                              
+                                    and `diagnoses_icd`.`hadm_id` = `a`.`hadm_id`
+                                    and `diagnoses_icd`.`seq_num` 
+                                     in (1, 2, 3, 4, 5,6,7,8,9,10)
+                                    and    `diagnoses_icd`.`icd_version` = 10
+                                     AND (SUBSTRING(replace(`diagnoses_icd`.`icd_code`, '.', ''),1,4)) NOT in('N186','Z992','Z490','Z491','Z492','Z940','T861')
+                                         
+                                   
+                                         AND (
+                   
+                                    replace(`diagnoses_icd`.`icd_code`, '.', '') like'N17%'
+                                    OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'N18.1%'
+                                    OR  replace(`diagnoses_icd`.`icd_code`, '.', '') like'N18.2%'
+                                    OR  replace(`diagnoses_icd`.`icd_code`, '.', '') like'N18.30%'
+                                    OR  replace(`diagnoses_icd`.`icd_code`, '.', '') like'N18.31%'
+                                    OR  replace(`diagnoses_icd`.`icd_code`, '.', '') like'N18.31%'
+                                    OR  replace(`diagnoses_icd`.`icd_code`, '.', '') like'N18.4%'
+                                        OR  replace(`diagnoses_icd`.`icd_code`, '.', '') like'N18.5%'
+                                        OR  replace(`diagnoses_icd`.`icd_code`, '.', '') like'N18.6%'
+                                        OR  replace(`diagnoses_icd`.`icd_code`, '.', '') like'N18.9%'
+                                    OR  replace(`diagnoses_icd`.`icd_code`, '.', '') like'E10%'
+                                        OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'E11%'
+                                        OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'E13%'
+                                        OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'N17%'
+                                        OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'I10%'
+                                        OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'I12%'
+                                        OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'I13%'
+                                        OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'I50%'
+                                        OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'I25%'
+                                        OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'E87.2%'
+                                        OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'A40%'
+                                        OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'A41%'
+                                        OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'M62.82%'
+                                        OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'E27.1%'
+                                        OR replace(`diagnoses_icd`.`icd_code`, '.', '') like'E27.4%'
+                                                )              
+                                                
+                                    )
                         AND patients.anchor_age >=18
                     
                         
@@ -1135,16 +1123,18 @@ def adm_k3():#轉檔
                             WHERE l.subject_id =a.subject_id and l.hadm_id = a.hadm_id and l.itemid IN (
                                 {LAB_IN}   
                             )
+                             AND l.charttime >= a.admittime + INTERVAL 24 HOUR
+                            AND l.charttime <  a.admittime + INTERVAL 72 HOUR
                              AND l.valuenum is not NULL 
                             GROUP BY l.hadm_id
                             HAVING COUNT(DISTINCT l.itemid) >= 6
                         )
                         
-                        and not exists (
+                        -- and not exists (  select * from z_k_adm  where z_k_adm.subject_id = a.subject_id and z_k_adm.hadm_id =a.hadm_id  )
+                       
+                       
                         
-                        select * from z_k_adm  where z_k_adm.subject_id = a.subject_id and z_k_adm.hadm_id =a.hadm_id
-                        
-                        )
+                      
                         
             
             """
@@ -1403,6 +1393,8 @@ def TO_CSV(TRAN_FOLDER):#轉檔
         print("CSV_TO_DB 錯誤!!!!!!! \n"+str(Error))
 
 def median_iqr(x):
+    #eGFR 這類資料通常可能偏態，因此用：Median (Q1, Q3) + Mann–Whitney U
+
     q1 = x.quantile(0.25)
     q3 = x.quantile(0.75)
     return f"{x.median():.2f} ({q1:.2f}, {q3:.2f})"
@@ -1715,10 +1707,12 @@ def calc_drug_pvalues():
     return 0
 
 if __name__ == "__main__":
-    TRAN_FOLDER="POTA_TRAN_DATA20260531"
+    TRAN_FOLDER="POTA_TRAN_DATA20261014"
+    #TRAN_FOLDER="real_data2"
     #calc_drug_pvalues()
     #calc_age_gender_pvalues()
-    calc_lab_pvalues2(f"{TRAN_FOLDER}/fetch_labevents.csv")
+    #calc_lab_pvalues2(f"{TRAN_FOLDER}/fetch_labevents.csv")
+
     #calc_lab_pvalues2("POTA_TRAN_DATA20260429/URINE.csv")
    
     #calc_drug_pvalues()#生成P值
@@ -1727,7 +1721,7 @@ if __name__ == "__main__":
     #adm_k3()
     #adm_k_drug()
    
-    #CKD_LAB()
+    CKD_LAB()
     #CKD_TO_STAT_EXCEL()
     #TO_CSV(TRAN_FOLDER)
 

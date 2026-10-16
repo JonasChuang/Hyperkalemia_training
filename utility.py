@@ -17,7 +17,7 @@ from boruta import BorutaPy
 #SEQ_HOURS = Hyperkalemia.SEQ_HOURS
 
 SEQ_HOURS = int(os.getenv("SEQ_HOURS", "72"))     # 特徵序列長度（0–24h）
-LBL_FROM  = int(os.getenv("LBL_FROM_H", "24"))    # 標籤視窗起點（相對 t0 小時）
+LBL_FROM  = int(os.getenv("LBL_FROM_H", "0"))    # 標籤視窗起點（相對 t0 小時）
 LBL_TO    = int(os.getenv("LBL_TO_H", "72"))      # 標籤視窗終點
 K_CUTOFF  = float(os.getenv("K_CUTOFF", "5.5"))   # 高血鉀閾值
 RANDOM_STATE = int(os.getenv("RANDOM_STATE", "42"))
@@ -162,6 +162,55 @@ def to_hourly_drug(df_drug: pd.DataFrame, stays: pd.DataFrame) -> pd.DataFrame:
     df["value"] = 1
 
     return df[["stay_id", "time_index", "label", "value"]]
+def to_hourly_urine(
+    df_long: pd.DataFrame,
+    t0_df: pd.DataFrame
+) -> pd.DataFrame:
+
+    if df_long.empty:
+        return pd.DataFrame(
+            columns=["stay_id", "time_index", "label", "value"]
+        )
+
+    df = df_long.merge(
+        t0_df[["stay_id", "t0"]],
+        on="stay_id",
+        how="left"
+    )
+
+    df["charttime"] = pd.to_datetime(df["charttime"])
+    df["t0"] = pd.to_datetime(df["t0"])
+
+    df["offset_h"] = (
+        df["charttime"] - df["t0"]
+    ).dt.total_seconds() / 3600.0
+
+    df = df[
+        (df["offset_h"] >= 0) &
+        (df["offset_h"] < SEQ_HOURS)
+    ].copy()
+
+    df["time_index"] = np.floor(
+        df["offset_h"]
+    ).astype(int)
+
+    df["valuenum"] = pd.to_numeric(
+        df["valuenum"],
+        errors="coerce"
+    )
+
+    # 同一小時多筆尿量加總
+    df = (
+        df.groupby(
+            ["stay_id", "label", "time_index"],
+            as_index=False
+        )["valuenum"]
+        .sum()
+    )
+
+    return df[
+        ["stay_id", "label", "time_index", "valuenum"]
+    ].rename(columns={"valuenum": "value"})
 
 def xgb_feature_importance(CSV_PATH,LAB_NAME):
     df = pd.read_csv(CSV_PATH)   # 你的CSV資料
@@ -537,3 +586,126 @@ def boruta_feature_selection(CSV_PATH,LAB_NAME):#Boruta
     # === 7. 儲存結果 ===
     feature_ranks.to_csv("boruta_feature_ranking.csv", index=False)
     print("\n📁 已輸出：boruta_feature_ranking.csv")
+
+def plot_eval_compare(val_res, test_res):
+    """
+    Validation vs Test metrics comparison
+    """
+
+    metrics = ["AUC", "AUPRC", "F1", "Brier"]
+
+    val_values = [val_res[m] for m in metrics]
+    test_values = [test_res[m] for m in metrics]
+
+    x = np.arange(len(metrics))
+    width = 0.35
+
+    plt.figure(figsize=(8,5))
+
+    bars1 = plt.bar(
+        x - width/2,
+        val_values,
+        width,
+        label="Validation"
+    )
+
+    bars2 = plt.bar(
+        x + width/2,
+        test_values,
+        width,
+        label="Test"
+    )
+
+    plt.xticks(x, metrics)
+
+    plt.ylabel("Score")
+
+    plt.ylim(0, 1)
+
+    plt.title(
+        f"Model Performance Comparison\n"
+        f"VAL thr={val_res['threshold']:.3f} | "
+        f"TEST thr={test_res['threshold']:.3f}"
+    )
+
+    plt.legend()
+
+    # 數值標籤
+    for bars in [bars1, bars2]:
+
+        for bar in bars:
+
+            h = bar.get_height()
+
+            plt.text(
+                bar.get_x() + bar.get_width()/2,
+                h + 0.01,
+                f"{h:.3f}",
+                ha="center",
+                va="bottom",
+                fontsize=9
+            )
+
+    plt.tight_layout()
+
+    plt.show()
+
+def loss_plot(history):
+    # =========================
+    # Loss
+    # =========================
+    plt.figure(figsize=(8, 5))
+
+    plt.plot(
+        history.history["loss"],
+        label="Train Loss"
+    )
+
+    plt.plot(
+        history.history["val_loss"],
+        label="Validation Loss"
+    )
+
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Training and Validation Loss")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+
+    # plt.savefig(
+    #     os.path.join(OUTDIR, "loss_curve.png"),
+    #     dpi=300
+    # )
+
+    plt.show()
+
+
+    # =========================
+    # AUPRC
+    # =========================
+    plt.figure(figsize=(8, 5))
+
+    plt.plot(
+        history.history["auprc"],
+        label="Train AUPRC"
+    )
+
+    plt.plot(
+        history.history["val_auprc"],
+        label="Validation AUPRC"
+    )
+
+    plt.xlabel("Epoch")
+    plt.ylabel("AUPRC")
+    plt.title("Training and Validation AUPRC")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+
+    # plt.savefig(
+    #     os.path.join(OUTDIR, "auprc_curve.png"),
+    #     dpi=300
+    # )
+
+    plt.show()

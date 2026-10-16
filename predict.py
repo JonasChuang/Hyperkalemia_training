@@ -252,9 +252,9 @@ def predict_real():
 
 
     def risk_group(p):
-        if p >= 0.45:
+        if p >= 0.6:
             return "high"
-        elif p >= 0.30:
+        elif p >= thr:
             return "medium"
         else:
             return "low"

@@ -26,6 +26,7 @@ from sklearn.linear_model import LogisticRegression
 from xgboost import XGBClassifier
 from sklearn.calibration import CalibratedClassifierCV,calibration_curve
 import statsmodels.api as sm
+from build_tensor import build_tensor as build_tensor2, add_urine_features
 #from tool import sqlalchmy_raw_sql
 
 OUTDIR = os.getenv("OUTDIR", "./artifacts_hk_seq")
@@ -528,8 +529,25 @@ def main(flg):
     lab_h  = to_hourly(df_lab,  stays)
     ur_h   = to_hourly(df_ur,   stays)
     drug_h = to_hourly_drug(df_drug, stays)
+    X, feat_cols, sid_df = build_tensor2(
+        stays=stays,
+        hourly_frames=[
+            char_h,
+            lab_h,
+            ur_h,
+            drug_h
+        ],
+        static_features=None,
+        feature_builders=[
+            add_urine_features,
+            #add_gcs_features
+        ],
+        seq_hours=SEQ_HOURS
+    )
 
-    X, feat_cols, sid_df = build_tensor3(char_h, lab_h, ur_h,drug_h, stays)# 將 long format（char/lab/output 每筆事件一列）轉為三維張量 (N × T × F)
+    
+
+    #X, feat_cols, sid_df = build_tensor3(char_h, lab_h, ur_h,drug_h, stays)# 將 long format（char/lab/output 每筆事件一列）轉為三維張量 (N × T × F)
 
     print("==> 取標籤（24–48h 高血鉀）")
  

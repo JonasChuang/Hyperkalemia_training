@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
-from sklearn.metrics import roc_auc_score, average_precision_score, f1_score, brier_score_loss, precision_recall_curve,roc_curve
+from sklearn.metrics import roc_auc_score, average_precision_score, f1_score, brier_score_loss, precision_recall_curve,roc_curve,confusion_matrix
 import os, json, joblib, numpy as np, pandas as pd, shap
+
 OUTDIR = os.getenv("OUTDIR", "./artifacts_hk_seq")
 def best_pr_thr(y_true, prob):
     p, r, thr = precision_recall_curve(y_true, prob)
@@ -36,6 +37,177 @@ def eval_block(y, p, tag):
 
     return res
 
+def eval_block2(y, prob, name, fixed_thr=None):
+
+    auc = roc_auc_score(y, prob)
+    auprc = average_precision_score(y, prob)
+    brier = brier_score_loss(y, prob)
+
+    # ==========================================
+    # 1. 找 threshold
+    # ==========================================
+    if fixed_thr is None:
+        precision, recall, thresholds = precision_recall_curve(y, prob)
+
+        f1_values = (
+            2 * precision[:-1] * recall[:-1]
+            / (precision[:-1] + recall[:-1] + 1e-8)
+        )
+
+        best_idx = np.argmax(f1_values)
+        thr = thresholds[best_idx]
+
+    else:
+        thr = fixed_thr
+
+    # ==========================================
+    # 2. Prediction
+    # ==========================================
+    pred = (prob >= thr).astype(int)
+
+    f1 = f1_score(y, pred)
+
+    tn, fp, fn, tp = confusion_matrix(
+        y, pred
+    ).ravel()
+
+    sensitivity = tp / (tp + fn)
+    specificity = tn / (tn + fp)
+
+    ppv = (
+        tp / (tp + fp)
+        if (tp + fp) > 0 else 0
+    )
+
+    npv = (
+        tn / (tn + fn)
+        if (tn + fn) > 0 else 0
+    )
+
+    # ==========================================
+    # 3. 輸出結果
+    # ==========================================
+    print(
+        f"[{name}] "
+        f"thr={thr:.3f} "
+        f"AUC={auc:.4f} "
+        f"AUPRC={auprc:.4f} "
+        f"F1={f1:.4f} "
+        f"Brier={brier:.4f}"
+    )
+
+    print(
+        f"TP={tp} FP={fp} FN={fn} TN={tn}"
+    )
+
+    print(
+        f"Sensitivity={sensitivity:.4f} "
+        f"Specificity={specificity:.4f} "
+        f"PPV={ppv:.4f} "
+        f"NPV={npv:.4f}"
+    )
+
+    # ==========================================
+    # 4. ROC Curve
+    # ==========================================
+    fpr, tpr, roc_thresholds = roc_curve(y, prob)
+
+    plt.figure(figsize=(7, 6))
+
+    # ROC
+    plt.plot(
+        fpr,
+        tpr,
+        linewidth=2,
+        label=f"{name} (AUROC = {auc:.3f})"
+    )
+
+    # Random classifier
+    plt.plot(
+        [0, 1],
+        [0, 1],
+        "--",
+        linewidth=1.5,
+        label="Random classifier"
+    )
+
+    # ==========================================
+    # 5. 標示目前 threshold 的位置
+    # ==========================================
+    roc_idx = np.argmin(
+        np.abs(roc_thresholds - thr)
+    )
+
+    plt.scatter(
+        fpr[roc_idx],
+        tpr[roc_idx],
+        s=80,
+        zorder=5
+    )
+
+    plt.annotate(
+        f"Threshold = {thr:.3f}\n"
+        f"Sensitivity = {sensitivity:.3f}\n"
+        f"Specificity = {specificity:.3f}",
+        xy=(fpr[roc_idx], tpr[roc_idx]),
+        xytext=(15, -60),
+        textcoords="offset points",
+        arrowprops=dict(arrowstyle="->")
+    )
+
+    # ==========================================
+    # 6. 圖形設定
+    # ==========================================
+    plt.xlabel("1 - Specificity (False Positive Rate)")
+    plt.ylabel("Sensitivity (True Positive Rate)")
+
+    plt.title(
+        f"ROC Curve - {name}"
+    )
+
+    plt.xlim([0, 1])
+    plt.ylim([0, 1.02])
+
+    plt.grid(alpha=0.3)
+
+    plt.legend(
+        loc="lower right"
+    )
+
+    plt.tight_layout()
+
+    # ==========================================
+    # 7. 儲存
+    # ==========================================
+    plt.savefig(
+        f"ROC_{name}.png",
+        dpi=300,
+        bbox_inches="tight"
+    )
+
+    plt.show()
+
+    # ==========================================
+    # 8. Return
+    # ==========================================
+    return {
+        "threshold": float(thr),
+        "AUC": float(auc),
+        "AUPRC": float(auprc),
+        "F1": float(f1),
+        "Brier": float(brier),
+
+        "sensitivity": float(sensitivity),
+        "specificity": float(specificity),
+        "ppv": float(ppv),
+        "npv": float(npv),
+
+        "tp": int(tp),
+        "fp": int(fp),
+        "fn": int(fn),
+        "tn": int(tn)
+    }
+   
 def plot_eval_radar(res_list, tags):#雷達圖
     metrics = ["AUC","AUPRC","F1","Brier"]
     N = len(metrics)
